@@ -13,8 +13,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from agents.autonomous_analyst import AutonomousAnalyst
 from agents.analytics_agent import AnalyticsAgent
 from agents.visualization_agent import VisualizationAgent
-from fixtures.sample_data import sample_transaction_data, temp_chart_dir
-from fixtures.mock_responses import mock_planner_responses, mock_insight_responses, mock_llm_environment
+from ..fixtures.sample_data import sample_transaction_data, temp_chart_dir
+from ..fixtures.mock_responses import mock_planner_responses, mock_insight_responses, mock_llm_environment
 
 
 class TestEndToEndQuestionFlow:

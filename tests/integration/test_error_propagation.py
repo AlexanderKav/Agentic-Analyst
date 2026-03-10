@@ -14,7 +14,7 @@ from agents.autonomous_analyst import AutonomousAnalyst
 from agents.planner_agent import PlannerAgent
 from agents.insight_agent import InsightAgent
 from agents.visualization_agent import VisualizationAgent
-from fixtures.sample_data import (
+from ..fixtures.sample_data import (
     sample_transaction_data, bad_data, empty_data, 
     missing_columns_data, temp_chart_dir
 )

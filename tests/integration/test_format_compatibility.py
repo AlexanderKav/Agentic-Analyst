@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from agents.analytics_agent import AnalyticsAgent
 from agents.insight_agent import InsightAgent, make_json_safe
 from agents.visualization_agent import VisualizationAgent
-from fixtures.sample_data import varied_data, temp_chart_dir
+from ..fixtures.sample_data import varied_data, temp_chart_dir
 
 
 class TestFormatCompatibility:

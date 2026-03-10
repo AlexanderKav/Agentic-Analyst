@@ -13,10 +13,10 @@ def test_imports():
         from agents.visualization_agent import VisualizationAgent
         from agents.monitoring import get_performance_tracker
         from agents.self_healing import get_healing_agent
-        print("✅ All imports successful!")
+        print("All imports successful!")
         assert True
     except ImportError as e:
-        print(f"❌ Import failed: {e}")
+        print(f" Import failed: {e}")
         assert False, f"Import failed: {e}"
 
 def test_python_path():
