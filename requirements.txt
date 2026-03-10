@@ -93,6 +93,7 @@ prophet @ file:///D:/bld/prophet_1769618814121/work
 proto-plus==1.27.1
 protobuf==6.33.5
 psycopg2 @ file:///D:/bld/psycopg2-split_1767372229078/work
+py-cpuinfo==9.0.0
 pyasn1==0.6.2
 pyasn1_modules==0.4.2
 pycparser==3.0
@@ -104,6 +105,7 @@ Pygments @ file:///home/conda/feedstock_root/build_artifacts/pygments_1750615794
 pyparsing @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_pyparsing_1769003998/work
 PySide6==6.9.2
 pytest==9.0.2
+pytest-benchmark==5.2.3
 python-dateutil @ file:///C:/b/abs_3au_koqnbs/croot/python-dateutil_1716495777160/work
 python-dotenv @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_python-dotenv_1772388605/work
 python-multipart @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_python-multipart_1769356329/work
