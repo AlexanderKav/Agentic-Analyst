@@ -39,6 +39,53 @@ def precise_test_data():
 
 
 @pytest.fixture
+def sample_business_data():
+    """Sample business data for insight agent testing"""
+    return {
+        "compute_kpis": {
+            "total_revenue": 150000.0,
+            "total_cost": 85000.0,
+            "total_profit": 65000.0,
+            "profit_margin": 0.43,
+            "avg_order_value": 1250.0
+        },
+        "monthly_revenue": {
+            "2024-01": 45000,
+            "2024-02": 52000,
+            "2024-03": 53000
+        },
+        "monthly_growth": {
+            "2024-01": 0,
+            "2024-02": 0.15,
+            "2024-03": 0.02
+        },
+        "revenue_by_customer": {
+            "Customer A": 75000,
+            "Customer B": 45000,
+            "Customer C": 30000
+        },
+        "revenue_by_product": {
+            "Enterprise Plan": 214265.0,
+            "Premium Plan": 64793.0,
+            "Basic Plan": 28913.0
+        },
+        "detect_revenue_spikes": {
+            "2024-02-15": 15000
+        }
+    }
+
+
+@pytest.fixture
+def sample_dataframe():
+    """Create a sample DataFrame for testing"""
+    return pd.DataFrame({
+        'date': pd.date_range('2024-01-01', periods=5),
+        'revenue': [1000, 1200, 1100, 1300, 1250],
+        'customer': ['A', 'B', 'A', 'C', 'B']
+    })
+
+
+@pytest.fixture
 def varied_data():
     """Data with various types to test format compatibility"""
     return pd.DataFrame({

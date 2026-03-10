@@ -88,6 +88,8 @@ Your tasks:
 4. Suggest additional metrics worth analyzing.
 
 Important:
+- **For product analysis, aggregate revenue across ALL customers for each product.**
+- **Do not look for a customer named after a product.**
 - Only include insights relevant to the question.
 - Avoid generic summaries or metrics not related to the query.
 - If no specific question is given, provide a general performance and risk overview.
