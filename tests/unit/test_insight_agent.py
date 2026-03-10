@@ -1,17 +1,23 @@
+"""Unit tests for InsightAgent."""
+
 import pytest
 import json
 import os
 import pandas as pd
 import numpy as np
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock
 from datetime import datetime
 import sys
 import re
 
 # Add the parent directory to sys.path to import from agents folder
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from agents.insight_agent import InsightAgent, make_json_safe, extract_json_from_text
+
+# Import shared fixtures
+from tests.fixtures.sample_data import sample_business_data, sample_dataframe
+from tests.fixtures.mock_responses import mock_llm_environment
 
 
 @pytest.fixture
@@ -36,48 +42,6 @@ def insight_agent(mock_env_vars):
         agent._mock_llm = mock_llm
         
         return agent
-
-
-@pytest.fixture
-def sample_business_data():
-    """Create sample business data for testing"""
-    return {
-        "compute_kpis": {
-            "total_revenue": 150000.0,
-            "total_cost": 85000.0,
-            "total_profit": 65000.0,
-            "profit_margin": 0.43,
-            "avg_order_value": 1250.0
-        },
-        "monthly_revenue": {
-            "2024-01": 45000,
-            "2024-02": 52000,
-            "2024-03": 53000
-        },
-        "monthly_growth": {
-            "2024-01": 0,
-            "2024-02": 0.15,
-            "2024-03": 0.02
-        },
-        "revenue_by_customer": {
-            "Customer A": 75000,
-            "Customer B": 45000,
-            "Customer C": 30000
-        },
-        "detect_revenue_spikes": {
-            "2024-02-15": 15000
-        }
-    }
-
-
-@pytest.fixture
-def sample_dataframe():
-    """Create a sample DataFrame for testing"""
-    return pd.DataFrame({
-        'date': pd.date_range('2024-01-01', periods=5),
-        'revenue': [1000, 1200, 1100, 1300, 1250],
-        'customer': ['A', 'B', 'A', 'C', 'B']
-    })
 
 
 class TestMakeJsonSafe:
@@ -174,16 +138,12 @@ class TestExtractJsonFromText:
         """Test extracting JSON with unquoted keys"""
         text = '{key: "value", number: 123}'
         result = extract_json_from_text(text)
-        # The function might not perfectly clean unquoted keys, so we'll check
-        # that it returns a dictionary (could be empty if parsing fails)
         assert isinstance(result, dict)
     
     def test_extract_json_with_unquoted_string_values(self):
         """Test extracting JSON with unquoted string values"""
         text = '{"key": value, "number": 123}'
         result = extract_json_from_text(text)
-        # The function might not perfectly clean unquoted values, so we'll check
-        # that it returns a dictionary (could be empty if parsing fails)
         assert isinstance(result, dict)
     
     def test_extract_json_complex(self):
@@ -223,7 +183,6 @@ class TestExtractJsonFromText:
         """Test extracting malformed JSON (should return empty dict)"""
         text = '{key: "value", missing: }'
         result = extract_json_from_text(text)
-        # Should return empty dict after failing to parse
         assert result == {}
 
 
@@ -247,25 +206,19 @@ class TestInsightAgentInitialization:
     
     @patch('agents.insight_agent.ChatOpenAI')
     def test_init_without_api_key(self, mock_chat_openai, monkeypatch):
-        """Test initialization without API key - should use default or raise"""
+        """Test initialization without API key"""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         
-        # This should either use a default or raise an exception
-        # Let's make it not raise by providing a mock that doesn't require API key
         mock_chat_openai.return_value = MagicMock()
         
         try:
             agent = InsightAgent()
-            # If it doesn't raise, that's fine too
             assert agent is not None
         except Exception:
-            # If it raises, that's also acceptable
             pass
     
     def test_prompt_template(self, insight_agent):
         """Test that prompt template is properly formatted"""
-        # Access the template string correctly
-        # The prompt is a ChatPromptTemplate with messages
         template_str = insight_agent.prompt.messages[0].prompt.template
         
         assert "{question}" in template_str
@@ -282,7 +235,6 @@ class TestGenerateInsights:
     
     def test_generate_insights_with_dict(self, insight_agent, sample_business_data):
         """Test generating insights from dictionary data"""
-        # Mock the LLM response
         mock_response = MagicMock()
         mock_response.content = '''
         {
@@ -306,10 +258,7 @@ class TestGenerateInsights:
         question = "How is our revenue performing?"
         raw, parsed = insight_agent.generate_insights(sample_business_data, question)
         
-        # Check that LLM was called with correct arguments
         insight_agent._mock_llm.invoke.assert_called_once()
-        
-        # Verify data was JSON-serialized
         assert isinstance(raw, str)
         assert parsed["answer"] == "Revenue is up 15% this quarter."
         assert "profit_margin" in parsed["supporting_insights"]
@@ -318,7 +267,6 @@ class TestGenerateInsights:
     
     def test_generate_insights_with_dataframe(self, insight_agent, sample_dataframe):
         """Test generating insights from DataFrame"""
-        # Mock the LLM response
         mock_response = MagicMock()
         mock_response.content = '''
         {
@@ -343,8 +291,7 @@ class TestGenerateInsights:
         assert parsed["supporting_insights"]["top_customer_revenue"] == "$2,300"
     
     def test_generate_insights_without_question(self, insight_agent, sample_business_data):
-        """Test generating insights without a question (default)"""
-        # Mock the LLM response
+        """Test generating insights without a question"""
         mock_response = MagicMock()
         mock_response.content = '''
         {
@@ -378,21 +325,18 @@ class TestGenerateInsights:
             }
         }
         
-        # Mock the LLM response
         mock_response = MagicMock()
         mock_response.content = '{"answer": "Success", "supporting_insights": {}, "anomalies": {}, "recommended_metrics": {}, "human_readable_summary": "OK"}'
         insight_agent._mock_llm.invoke.return_value = mock_response
         
         raw, parsed = insight_agent.generate_insights(data, "Test question")
         
-        # Should not raise any errors
         assert parsed["answer"] == "Success"
     
     def test_generate_insights_with_empty_data(self, insight_agent):
         """Test generating insights with empty data"""
         data = {}
         
-        # Mock the LLM response
         mock_response = MagicMock()
         mock_response.content = '''
         {
@@ -410,37 +354,39 @@ class TestGenerateInsights:
         assert parsed["answer"] == "No data available for analysis."
     
     def test_generate_insights_with_malformed_response(self, insight_agent, sample_business_data):
-        """Test handling of malformed JSON response from LLM"""
-        # Mock a malformed response
+        """Test handling of malformed JSON response"""
         mock_response = MagicMock()
         mock_response.content = "Here's my analysis: {answer: 'Revenue is up', supporting_insights: {growth: '15%'}}"
         insight_agent._mock_llm.invoke.return_value = mock_response
         
         raw, parsed = insight_agent.generate_insights(sample_business_data, "Question")
         
-        # Should still parse something or return empty dict
         assert isinstance(parsed, dict)
     
     def test_generate_insights_with_non_json_response(self, insight_agent, sample_business_data):
         """Test handling of completely non-JSON response"""
-        # Mock a non-JSON response
         mock_response = MagicMock()
         mock_response.content = "The revenue is up 15% this quarter. Customer A is performing well."
         insight_agent._mock_llm.invoke.return_value = mock_response
         
         raw, parsed = insight_agent.generate_insights(sample_business_data, "Question")
         
-        # Should return empty dict
-        assert parsed == {}
+        # Should return a structured response with the text as answer
+        assert isinstance(parsed, dict)
+        assert "answer" in parsed
+        assert "revenue is up 15%" in parsed["answer"]
+        assert "Customer A" in parsed["answer"]
+        assert "supporting_insights" in parsed
+        assert "anomalies" in parsed
+        assert "recommended_metrics" in parsed
+        assert "human_readable_summary" in parsed
     
     def test_generate_insights_with_exception(self, insight_agent, sample_business_data):
         """Test handling of exceptions during LLM call"""
-        # Mock an exception
         insight_agent._mock_llm.invoke.side_effect = Exception("API Error")
         
         raw, parsed = insight_agent.generate_insights(sample_business_data, "Question")
         
-        # Should return empty results
         assert raw == ""
         assert parsed == {}
 
@@ -452,7 +398,6 @@ class TestEdgeCases:
         """Test with a complex, multi-part question"""
         complex_question = "What were our revenue trends last quarter, which customers grew the most, and are there any anomalies we should worry about?"
         
-        # Mock the LLM response
         mock_response = MagicMock()
         mock_response.content = '''
         {
@@ -481,7 +426,6 @@ class TestEdgeCases:
     
     def test_generate_insights_with_large_dataset(self, insight_agent):
         """Test with a large dataset to ensure JSON serialization works"""
-        # Create a large dataset
         large_data = {
             f"item_{i}": {
                 "value": float(np.random.random()),
@@ -490,7 +434,6 @@ class TestEdgeCases:
             for i in range(100)
         }
         
-        # Mock the LLM response
         mock_response = MagicMock()
         mock_response.content = '{"answer": "Large dataset processed", "supporting_insights": {}, "anomalies": {}, "recommended_metrics": {}, "human_readable_summary": "Success"}'
         insight_agent._mock_llm.invoke.return_value = mock_response
@@ -524,7 +467,6 @@ class TestEdgeCases:
         Second: {"id": 2, "name": "second"}
         '''
         result = extract_json_from_text(text)
-        # Should extract the first JSON object or return empty
         assert isinstance(result, dict)
 
 
@@ -535,7 +477,6 @@ class TestIntegration:
         """Test the complete insight generation flow"""
         question = "How is our business performing this quarter?"
         
-        # Mock a realistic LLM response
         mock_response = MagicMock()
         mock_response.content = '''
         {
@@ -561,19 +502,14 @@ class TestIntegration:
         
         raw, parsed = insight_agent.generate_insights(sample_business_data, question)
         
-        # Verify the structure
         assert "answer" in parsed
         assert "supporting_insights" in parsed
         assert "anomalies" in parsed
         assert "recommended_metrics" in parsed
         assert "human_readable_summary" in parsed
-        
-        # Verify content
         assert "150K" in parsed["answer"]
         assert "Customer A" in parsed["supporting_insights"]["top_performer"]
         assert "feb_spike" in parsed["anomalies"]
-        
-        # Verify raw response is preserved
         assert raw == mock_response.content
 
 
