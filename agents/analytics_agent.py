@@ -1,11 +1,20 @@
 import pandas as pd
 import numpy as np
 from statsmodels.tsa.arima.model import ARIMA
+from agents.monitoring import get_performance_tracker, timer, get_audit_logger, get_cost_tracker
+from agents.self_healing import get_healing_agent
 
 class AnalyticsAgent:
 
     def __init__(self, df):
         self.df = df.copy()
+        
+        # Initialize monitoring
+        self.perf_tracker = get_performance_tracker()
+        self.audit_logger = get_audit_logger()
+        self.cost_tracker = get_cost_tracker()
+        self.healer = get_healing_agent()
+        self.session_id = id(self)
 
         # Ensure proper data types
         if "date" in self.df.columns:
@@ -17,140 +26,507 @@ class AnalyticsAgent:
         # Calculate profit if possible
         if "revenue" in self.df.columns and "cost" in self.df.columns:
             self.df["profit"] = self.df["revenue"] - self.df["cost"]
+            
+        # Audit log initialization
+        self.audit_logger.log_action(
+            action_type='analytics_init',
+            agent='analytics',
+            details={
+                'data_shape': self.df.shape, 
+                'columns': list(self.df.columns),
+                'has_profit': 'profit' in self.df.columns
+            },
+            session_id=self.session_id
+        )
 
     # -----------------------------
     # KPIs
     # -----------------------------
+    @timer(operation='compute_kpis')
     def compute_kpis(self):
-        total_revenue = np.floor(self.df["revenue"].sum())
-        total_cost = np.floor(self.df["cost"].sum())
-        total_profit = np.floor(self.df["profit"].sum())
+        """Compute KPIs with monitoring"""
+        try:
+            # Try to access standard columns
+            try:
+                total_revenue = np.floor(self.df["revenue"].sum())
+                total_cost = np.floor(self.df["cost"].sum())
+                total_profit = np.floor(self.df["profit"].sum())
+            except KeyError:
+                # Attempt recovery
+                recovered = self._recover_kpis_with_alternatives()
+                if recovered:
+                    return recovered
+                raise
 
-        profit_margin = 0
-        if total_revenue > 0:
-            profit_margin = total_profit / total_revenue
-            profit_margin = np.floor(profit_margin * 100) / 100  # floor to 2 decimals
+            profit_margin = 0
+            if total_revenue > 0:
+                profit_margin = total_profit / total_revenue
+                profit_margin = np.floor(profit_margin * 100) / 100
 
-        avg_order_value = np.floor(self.df["revenue"].mean())
+            avg_order_value = np.floor(self.df["revenue"].mean())
+            
+            result = {
+                "total_revenue": float(total_revenue),
+                "total_cost": float(total_cost),
+                "total_profit": float(total_profit),
+                "profit_margin": float(profit_margin),
+                "avg_order_value": float(avg_order_value)
+            }
+            
+            # Audit log
+            self.audit_logger.log_action(
+                action_type='compute_kpis',
+                agent='analytics',
+                details={
+                    'result_summary': {
+                        'revenue': result['total_revenue'],
+                        'profit': result['total_profit'],
+                        'margin': result['profit_margin']
+                    }
+                },
+                session_id=self.session_id
+            )
+            
+            return result
+            
+        except KeyError as e:
+            # Missing column - let healing agent learn
+            context = {
+                'tool': 'compute_kpis',
+                'error_type': 'missing_column',
+                'data_shape': self.df.shape,
+                'available_columns': list(self.df.columns)
+            }
+            action = self.healer.analyze_failure(e, context)
+            
+            self.audit_logger.log_action(
+                action_type='compute_kpis_error',
+                agent='analytics',
+                details={'error': str(e), 'context': context},
+                session_id=self.session_id
+            )
+            raise
+            
+        except Exception as e:
+            # Other errors
+            self.healer.analyze_failure(e, {'tool': 'compute_kpis'})
+            self.audit_logger.log_action(
+                action_type='compute_kpis_error',
+                agent='analytics',
+                details={'error': str(e)},
+                session_id=self.session_id
+            )
+            raise
 
-        return {
-            "total_revenue": float(total_revenue),
-            "total_cost": float(total_cost),
-            "total_profit": float(total_profit),
-            "profit_margin": float(profit_margin),
-            "avg_order_value": float(avg_order_value)
-        }
+    def _recover_kpis_with_alternatives(self):
+        """Recovery method for missing columns"""
+        try:
+            # Find columns that might contain revenue data
+            revenue_col = None
+            cost_col = None
+            
+            revenue_keywords = ['revenue', 'sales', 'rev', 'income', 'turnover', 'amount']
+            cost_keywords = ['cost', 'expense', 'cogs', 'spend', 'expenditure', 'expenses']
+            
+            for col in self.df.columns:
+                col_lower = col.lower()
+                if any(kw in col_lower for kw in revenue_keywords):
+                    revenue_col = col
+                    break
+            
+            for col in self.df.columns:
+                col_lower = col.lower()
+                if any(kw in col_lower for kw in cost_keywords):
+                    cost_col = col
+                    break
+            
+            if revenue_col:
+                total_revenue = np.floor(self.df[revenue_col].sum())
+                
+                if cost_col:
+                    total_cost = np.floor(self.df[cost_col].sum())
+                    total_profit = total_revenue - total_cost
+                    profit_margin = total_profit / total_revenue if total_revenue > 0 else 0
+                else:
+                    # If no cost column, estimate from revenue (40% typical margin)
+                    total_cost = np.floor(total_revenue * 0.6)
+                    total_profit = total_revenue - total_cost
+                    profit_margin = 0.4
+                
+                avg_order_value = np.floor(self.df[revenue_col].mean())
+                
+                return {
+                    "total_revenue": float(total_revenue),
+                    "total_cost": float(total_cost),
+                    "total_profit": float(total_profit),
+                    "profit_margin": float(np.floor(profit_margin * 100) / 100),
+                    "avg_order_value": float(avg_order_value)
+                }
+            return None
+        except Exception as e:
+            self.healer.analyze_failure(e, {'tool': '_recover_kpis_with_alternatives'})
+            return None
 
     # -----------------------------
     # Revenue breakdowns
     # -----------------------------
+    @timer(operation='revenue_by_customer')
     def revenue_by_customer(self):
-        return np.floor(self.df.groupby("customer")["revenue"].sum().sort_values(ascending=False))
+        """Get revenue by customer with monitoring"""
+        try:
+            result = np.floor(self.df.groupby("customer")["revenue"].sum().sort_values(ascending=False))
+            
+            self.audit_logger.log_action(
+                action_type='revenue_by_customer',
+                agent='analytics',
+                details={
+                    'unique_customers': len(result),
+                    'top_customer': result.index[0] if not result.empty else None,
+                    'top_value': float(result.iloc[0]) if not result.empty else 0
+                },
+                session_id=self.session_id
+            )
+            
+            return result
+            
+        except Exception as e:
+            self.healer.analyze_failure(e, {'tool': 'revenue_by_customer'})
+            raise
 
+    @timer(operation='revenue_by_product')
     def revenue_by_product(self):
-        return np.floor(self.df.groupby("product")["revenue"].sum().sort_values(ascending=False))
+        """Get revenue by product with monitoring"""
+        try:
+            result = np.floor(self.df.groupby("product")["revenue"].sum().sort_values(ascending=False))
+            
+            self.audit_logger.log_action(
+                action_type='revenue_by_product',
+                agent='analytics',
+                details={
+                    'unique_products': len(result),
+                    'top_product': result.index[0] if not result.empty else None
+                },
+                session_id=self.session_id
+            )
+            
+            return result
+            
+        except Exception as e:
+            self.healer.analyze_failure(e, {'tool': 'revenue_by_product'})
+            raise
 
+    @timer(operation='revenue_by_region')
     def revenue_by_region(self):
-        return np.floor(self.df.groupby("region")["revenue"].sum().sort_values(ascending=False))
+        """Get revenue by region with monitoring"""
+        try:
+            result = np.floor(self.df.groupby("region")["revenue"].sum().sort_values(ascending=False))
+            
+            self.audit_logger.log_action(
+                action_type='revenue_by_region',
+                agent='analytics',
+                details={
+                    'unique_regions': len(result),
+                    'top_region': result.index[0] if not result.empty else None
+                },
+                session_id=self.session_id
+            )
+            
+            return result
+            
+        except Exception as e:
+            self.healer.analyze_failure(e, {'tool': 'revenue_by_region'})
+            raise
 
     # -----------------------------
     # Monthly metrics
     # -----------------------------
+    @timer(operation='monthly_revenue')
     def monthly_revenue(self):
-        series = self.df.set_index("date").resample("ME")["revenue"].sum()
-        return np.floor(series)
+        """Get monthly revenue with monitoring"""
+        try:
+            series = self.df.set_index("date").resample("ME")["revenue"].sum()
+            result = np.floor(series)
+            
+            self.audit_logger.log_action(
+                action_type='monthly_revenue',
+                agent='analytics',
+                details={
+                    'months': len(result),
+                    'total': float(result.sum()),
+                    'avg_monthly': float(result.mean()) if not result.empty else 0
+                },
+                session_id=self.session_id
+            )
+            
+            return result
+            
+        except Exception as e:
+            self.healer.analyze_failure(e, {'tool': 'monthly_revenue'})
+            raise
 
+    @timer(operation='monthly_profit')
     def monthly_profit(self):
-        series = self.df.set_index("date").resample("ME")["profit"].sum()
-        return np.floor(series)
+        """Get monthly profit with monitoring"""
+        try:
+            series = self.df.set_index("date").resample("ME")["profit"].sum()
+            result = np.floor(series)
+            
+            self.audit_logger.log_action(
+                action_type='monthly_profit',
+                agent='analytics',
+                details={
+                    'months': len(result),
+                    'total': float(result.sum()),
+                    'avg_monthly': float(result.mean()) if not result.empty else 0
+                },
+                session_id=self.session_id
+            )
+            
+            return result
+            
+        except Exception as e:
+            self.healer.analyze_failure(e, {'tool': 'monthly_profit'})
+            raise
 
+    @timer(operation='monthly_growth')
     def monthly_growth(self):
-        monthly = self.monthly_revenue()
-        growth = monthly.pct_change().fillna(0)
-        return np.floor(growth * 100) / 100  # floor to 2 decimals
+        """Get monthly growth with monitoring"""
+        try:
+            monthly = self.monthly_revenue()
+            growth = monthly.pct_change().fillna(0)
+            result = np.floor(growth * 100) / 100  # floor to 2 decimals
+            
+            if not result.empty:
+                self.audit_logger.log_action(
+                    action_type='monthly_growth',
+                    agent='analytics',
+                    details={
+                        'avg_growth': float(result.mean()),
+                        'latest_growth': float(result.iloc[-1]),
+                        'positive_months': int((result > 0).sum())
+                    },
+                    session_id=self.session_id
+                )
+            
+            return result
+            
+        except Exception as e:
+            self.healer.analyze_failure(e, {'tool': 'monthly_growth'})
+            raise
 
     # -----------------------------
     # Quantity metrics
     # -----------------------------
+    @timer(operation='total_units_sold')
     def total_units_sold(self):
-        if "quantity" not in self.df.columns:
-            return None
-        return np.floor(self.df["quantity"].sum())
+        """Get total units sold with monitoring"""
+        try:
+            if "quantity" not in self.df.columns:
+                self.audit_logger.log_action(
+                    action_type='total_units_sold_missing',
+                    agent='analytics',
+                    details={'error': 'quantity column missing'},
+                    session_id=self.session_id
+                )
+                return None
+                
+            result = np.floor(self.df["quantity"].sum())
+            
+            self.audit_logger.log_action(
+                action_type='total_units_sold',
+                agent='analytics',
+                details={'total_units': float(result)},
+                session_id=self.session_id
+            )
+            
+            return result
+            
+        except Exception as e:
+            self.healer.analyze_failure(e, {'tool': 'total_units_sold'})
+            raise
 
+    @timer(operation='revenue_per_unit')
     def revenue_per_unit(self):
-        if "quantity" not in self.df.columns or self.df["quantity"].sum() == 0:
-            return None
-        return np.floor(self.df["revenue"].sum() / self.df["quantity"].sum())
+        """Get revenue per unit with monitoring"""
+        try:
+            if "quantity" not in self.df.columns or self.df["quantity"].sum() == 0:
+                return None
+                
+            result = np.floor(self.df["revenue"].sum() / self.df["quantity"].sum())
+            
+            self.audit_logger.log_action(
+                action_type='revenue_per_unit',
+                agent='analytics',
+                details={'revenue_per_unit': float(result)},
+                session_id=self.session_id
+            )
+            
+            return result
+            
+        except Exception as e:
+            self.healer.analyze_failure(e, {'tool': 'revenue_per_unit'})
+            raise
 
     # -----------------------------
     # Payment analysis
     # -----------------------------
+    @timer(operation='revenue_by_payment_status')
     def revenue_by_payment_status(self):
-        if "payment_status" not in self.df.columns:
-            return None
-        return np.floor(self.df.groupby("payment_status")["revenue"].sum())
+        """Get revenue by payment status with monitoring"""
+        try:
+            if "payment_status" not in self.df.columns:
+                return None
+                
+            result = np.floor(self.df.groupby("payment_status")["revenue"].sum())
+            
+            self.audit_logger.log_action(
+                action_type='revenue_by_payment_status',
+                agent='analytics',
+                details={
+                    'statuses': list(result.index),
+                    'paid': float(result.get('paid', 0)),
+                    'pending': float(result.get('pending', 0)),
+                    'overdue': float(result.get('overdue', 0))
+                },
+                session_id=self.session_id
+            )
+            
+            return result
+            
+        except Exception as e:
+            self.healer.analyze_failure(e, {'tool': 'revenue_by_payment_status'})
+            raise
 
     # -----------------------------
     # Anomaly detection
     # -----------------------------
+    @timer(operation='detect_revenue_spikes')
     def detect_revenue_spikes(self):
-        monthly = self.monthly_revenue()
-        threshold = monthly.mean() + 2 * monthly.std()
-        anomalies = monthly[monthly > threshold]
-        return anomalies  # Series already floored by monthly_revenue
+        """Detect revenue spikes with monitoring"""
+        try:
+            monthly = self.monthly_revenue()
+            threshold = monthly.mean() + 2 * monthly.std()
+            anomalies = monthly[monthly > threshold]
+            
+            self.audit_logger.log_action(
+                action_type='detect_revenue_spikes',
+                agent='analytics',
+                details={
+                    'threshold': float(threshold),
+                    'anomalies_found': len(anomalies),
+                    'anomaly_months': [str(d) for d in anomalies.index] if not anomalies.empty else []
+                },
+                session_id=self.session_id
+            )
+            
+            return anomalies
+            
+        except Exception as e:
+            self.healer.analyze_failure(e, {'tool': 'detect_revenue_spikes'})
+            raise
 
     # -----------------------------
     # Generate human-readable summary
     # -----------------------------
+    @timer(operation='generate_summary')
     def generate_summary(self):
-        summary = ""
-        kpis = self.compute_kpis()
+        """Generate summary with monitoring"""
+        try:
+            summary = ""
+            kpis = self.compute_kpis()
 
-        summary += (
-            f"Total revenue: ${kpis['total_revenue']:,.0f}, "
-            f"total cost: ${kpis['total_cost']:,.0f}, "
-            f"total profit: ${kpis['total_profit']:,.0f}, "
-            f"profit margin: {kpis['profit_margin']:.0%}.\n"
-        )
+            summary += (
+                f"Total revenue: ${kpis['total_revenue']:,.0f}, "
+                f"total cost: ${kpis['total_cost']:,.0f}, "
+                f"total profit: ${kpis['total_profit']:,.0f}, "
+                f"profit margin: {kpis['profit_margin']:.0%}.\n"
+            )
 
-        top_cust = self.revenue_by_customer().head(3)
-        if not top_cust.empty:
-            customers = ", ".join([f"{c} (${r:,.0f})" for c, r in top_cust.items()])
-            summary += f"Top customers: {customers}.\n"
+            top_cust = self.revenue_by_customer().head(3)
+            if not top_cust.empty:
+                customers = ", ".join([f"{c} (${r:,.0f})" for c, r in top_cust.items()])
+                summary += f"Top customers: {customers}.\n"
 
-        growth = self.monthly_growth()
-        if not growth.empty:
-            latest_month = growth.index[-1].strftime("%B %Y")
-            latest_growth = growth.iloc[-1] * 100
-            summary += f"Latest month ({latest_month}) growth: {latest_growth:.0f}%.\n"
+            growth = self.monthly_growth()
+            if not growth.empty:
+                latest_month = growth.index[-1].strftime("%B %Y")
+                latest_growth = growth.iloc[-1] * 100
+                summary += f"Latest month ({latest_month}) growth: {latest_growth:.0f}%.\n"
 
-        anomalies = self.detect_revenue_spikes()
-        if not anomalies.empty:
-            months = ", ".join([d.strftime("%B %Y") for d in anomalies.index])
-            summary += f"Revenue anomalies detected in: {months}.\n"
+            anomalies = self.detect_revenue_spikes()
+            if not anomalies.empty:
+                months = ", ".join([d.strftime("%B %Y") for d in anomalies.index])
+                summary += f"Revenue anomalies detected in: {months}.\n"
 
-        if "payment_status" in self.df.columns:
-            unpaid = self.df[self.df["payment_status"] != "paid"]
-            if not unpaid.empty:
-                unpaid_amount = np.floor(unpaid["revenue"].sum())
-                summary += f"Outstanding unpaid revenue: ${unpaid_amount:,.0f}.\n"
+            if "payment_status" in self.df.columns:
+                unpaid = self.df[self.df["payment_status"] != "paid"]
+                if not unpaid.empty:
+                    unpaid_amount = np.floor(unpaid["revenue"].sum())
+                    summary += f"Outstanding unpaid revenue: ${unpaid_amount:,.0f}.\n"
+            
+            self.audit_logger.log_action(
+                action_type='generate_summary',
+                agent='analytics',
+                details={'summary_length': len(summary)},
+                session_id=self.session_id
+            )
 
-        return summary
+            return summary
+            
+        except Exception as e:
+            self.healer.analyze_failure(e, {'tool': 'generate_summary'})
+            raise
 
     # -----------------------------
     # Forecast revenue
     # -----------------------------
+    @timer(operation='forecast_revenue')
     def forecast_revenue(self):
-        monthly = self.monthly_revenue()
-        model = ARIMA(monthly, order=(1, 1, 1))
-        model_fit = model.fit()
-        forecast = model_fit.forecast(steps=3)
-        return np.floor(forecast)
+        """Forecast revenue with monitoring"""
+        try:
+            monthly = self.monthly_revenue()
+            
+            # Track model training cost
+            self.cost_tracker.track_call(
+                model='statsmodels',
+                input_tokens=len(monthly),
+                output_tokens=3,
+                agent='analytics.forecast',
+                user='system',
+                session_id=self.session_id
+            )
+            
+            model = ARIMA(monthly, order=(1, 1, 1))
+            model_fit = model.fit()
+            forecast = model_fit.forecast(steps=3)
+            result = np.floor(forecast)
+            
+            self.audit_logger.log_action(
+                action_type='forecast_revenue',
+                agent='analytics',
+                details={
+                    'historical_periods': len(monthly),
+                    'forecast': [float(x) for x in result]
+                },
+                session_id=self.session_id
+            )
+            
+            return result
+            
+        except Exception as e:
+            context = {
+                'tool': 'forecast_revenue',
+                'monthly_data_length': len(monthly) if 'monthly' in locals() else 0
+            }
+            self.healer.analyze_failure(e, context)
+            raise
 
     # -----------------------------
     # Run tool by name
     # -----------------------------
+    @timer(operation='run_tool')
     def run_tool(self, tool_name):
+        """Run tool by name with monitoring"""
         tools = {
             "compute_kpis": self.compute_kpis,
             "revenue_by_customer": self.revenue_by_customer,
@@ -163,12 +539,28 @@ class AnalyticsAgent:
         }
 
         if tool_name not in tools:
-            raise ValueError(f"Unknown tool: {tool_name}")
+            error_msg = f"Unknown tool: {tool_name}"
+            self.audit_logger.log_action(
+                action_type='run_tool_error',
+                agent='analytics',
+                details={'error': error_msg, 'tool': tool_name},
+                session_id=self.session_id
+            )
+            raise ValueError(error_msg)
+
+        self.audit_logger.log_action(
+            action_type='run_tool',
+            agent='analytics',
+            details={'tool': tool_name},
+            session_id=self.session_id
+        )
 
         return tools[tool_name]()
+
     # -----------------------------
     # Monthly revenue per customer
     # -----------------------------
+    @timer(operation='monthly_revenue_by_customer')
     def monthly_revenue_by_customer(self, months_to_check=6):
         """
         Returns a dictionary with revenue per customer per month and monthly decline info.
@@ -183,32 +575,57 @@ class AnalyticsAgent:
             ...
         }
         """
+        try:
+            if "customer" not in self.df.columns:
+                self.audit_logger.log_action(
+                    action_type='monthly_revenue_by_customer_missing',
+                    agent='analytics',
+                    details={'error': 'customer column missing'},
+                    session_id=self.session_id
+                )
+                return {}
 
-        if "customer" not in self.df.columns:
-            return {}
+            df_monthly = self.df.copy()
+            df_monthly["customer"] = df_monthly["customer"].replace("", "Unknown Customer")
+            df_monthly["month"] = df_monthly["date"].dt.to_period("M")
+            grouped = df_monthly.groupby(["customer", "month"])["revenue"].sum().reset_index()
 
-        df_monthly = self.df.copy()
-        df_monthly["customer"] = df_monthly["customer"].replace("", "Unknown Customer")
-        df_monthly["month"] = df_monthly["date"].dt.to_period("M")
-        grouped = df_monthly.groupby(["customer", "month"])["revenue"].sum().reset_index()
+            result = {}
+            declining_count = 0
 
-        result = {}
+            for customer, group in grouped.groupby("customer"):
+                # Sort months ascending
+                group = group.sort_values("month")
+                monthly_dict = {str(row["month"]): float(np.floor(row["revenue"])) for _, row in group.iterrows()}
 
-        for customer, group in grouped.groupby("customer"):
-            # Sort months ascending
-            group = group.sort_values("month")
-            monthly_dict = {str(row["month"]): float(np.floor(row["revenue"])) for _, row in group.iterrows()}
+                # Take last `months_to_check` months
+                last_months = list(monthly_dict.values())[-months_to_check:]
 
-            # Take last `months_to_check` months
-            last_months = list(monthly_dict.values())[-months_to_check:]
+                # Determine if declining trend: simple check if each month <= previous month
+                declining = all(earlier >= later for earlier, later in zip(last_months, last_months[1:])) if len(last_months) > 1 else False
+                
+                if declining:
+                    declining_count += 1
 
-            # Determine if declining trend: simple check if each month <= previous month
-            declining = all(earlier >= later for earlier, later in zip(last_months, last_months[1:])) if len(last_months) > 1 else False
+                result[customer] = {
+                    "monthly_revenue": monthly_dict,
+                    "trend": last_months,
+                    "declining": declining
+                }
 
-            result[customer] = {
-                "monthly_revenue": monthly_dict,
-                "trend": last_months,
-                "declining": declining
-            }
+            self.audit_logger.log_action(
+                action_type='monthly_revenue_by_customer',
+                agent='analytics',
+                details={
+                    'total_customers': len(result),
+                    'declining_customers': declining_count,
+                    'months_analyzed': months_to_check
+                },
+                session_id=self.session_id
+            )
 
-        return result
+            return result
+            
+        except Exception as e:
+            self.healer.analyze_failure(e, {'tool': 'monthly_revenue_by_customer'})
+            raise

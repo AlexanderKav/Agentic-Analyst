@@ -428,9 +428,38 @@ class TestEdgeCases:
             {"plan": ["compute_kpis"]}
         )
         
-        # Exception should propagate
-        with pytest.raises(Exception, match="Tool failed"):
-            autonomous_analyst.run("Question")
+        # The method should handle the exception and return error results
+        raw_plan, plan, results, raw_insights, insights = autonomous_analyst.run("Question")
+        
+        # Verify it returns error information instead of crashing
+        assert "compute_kpis" in results
+        assert "error" in results["compute_kpis"]
+        assert "Tool failed" in results["compute_kpis"]["error"]
+        
+        # Verify other return values are present
+        assert raw_plan == "Raw plan"
+        assert plan == {"plan": ["compute_kpis"]}
+        assert insights is not None
+    
+    def test_run_with_critical_exception(self, autonomous_analyst):
+        """Test handling of critical exception in the main flow"""
+        # Make the planner fail
+        autonomous_analyst.planner.create_plan.side_effect = Exception("Planner failed")
+
+        # The method should handle the exception and return error results
+        raw_plan, plan, results, raw_insights, insights = autonomous_analyst.run("Question")
+        
+        # Verify the error response structure
+        assert "compute_kpis" in results
+        assert "error" in results["compute_kpis"]
+        assert "Planner failed" in results["compute_kpis"]["error"]
+        
+        # Verify insights contain error information
+        assert "failed" in insights.lower() or "error" in insights.lower()
+        
+        # Other return values should still be present
+        assert raw_plan is not None
+        assert plan is not None
     
     def test_cache_persistence_across_calls(self, autonomous_analyst):
         """Test that cache persists across multiple run calls"""
@@ -440,9 +469,15 @@ class TestEdgeCases:
         # Reset call counts and mock side effects
         autonomous_analyst.analytics.run_tool.reset_mock()
         
-        # Set up mock for second run - IMPORTANT: We need to actually CALL the tools
-        # The previous run populated the cache, but run() will still call cached_run()
-        # which will check the cache first
+        # Set up mock for second run
+        def side_effect(tool_name):
+            if tool_name == "compute_kpis":
+                return {"some": "new data"}
+            elif tool_name == "monthly_profit":
+                return {"more": "data"}
+            return None
+        
+        autonomous_analyst.analytics.run_tool.side_effect = side_effect
         
         # Second run with different plan
         autonomous_analyst.planner.create_plan.return_value = (
@@ -463,7 +498,6 @@ class TestEdgeCases:
         # Cache should contain results from this run
         assert "compute_kpis" in autonomous_analyst.analytics_cache
         assert "monthly_profit" in autonomous_analyst.analytics_cache
-
 
 class TestIntegration:
     """Integration-style tests (still using mocks but testing interactions)"""

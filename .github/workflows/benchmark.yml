@@ -1,0 +1,37 @@
+name: Performance Benchmarks
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Run daily at 2 AM
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pytest pytest-benchmark
+    
+    - name: Run benchmarks
+      run: |
+        pytest tests/benchmarks/ --benchmark-only --benchmark-json output.json
+    
+    - name: Store benchmark results
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results
+        path: output.json
+    
+    - name: Compare with previous benchmark
+      run: |
+        python scripts/compare_benchmarks.py output.json
