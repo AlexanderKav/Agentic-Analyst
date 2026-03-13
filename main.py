@@ -7,6 +7,7 @@ from agents.planner_agent import PlannerAgent
 from agents.insight_agent import InsightAgent
 from agents.visualization_agent import VisualizationAgent
 from agents.autonomous_analyst import AutonomousAnalyst
+from connectors.data_loader import DataLoader
 
 import os
 from dotenv import load_dotenv
@@ -15,7 +16,8 @@ import json
 
 # Load environment variables (API keys)
 load_dotenv()
-
+loader = DataLoader()
+'''
 def load_data(source, source_type=None):
     """Load data from various sources
     
@@ -50,7 +52,7 @@ if DATA_SOURCE:
     print("GOOOOOOGLE")
 else:
     # For CSV
-    DATA_SOURCE = os.getenv('CSV_PATH', 'updated.csv')
+    DATA_SOURCE = os.getenv('CSV_PATH', 'data.csv')
     raw_df = load_data(DATA_SOURCE, source_type='csv')
     print("CSSSSSSSSSSSVVVVVVVV")
 # -------------------------
@@ -63,8 +65,34 @@ else:
 #csv_path = os.getenv('CSV_PATH', 'updated.csv')  # Set your CSV file path
 #connector = CSVConnector(csv_path)
 #raw_df = connector.fetch_data()  # Note: fetch_data(), not fetch_sheet()
-
-mapper = SchemaMapper(raw_df)
+'''
+    # OPTION 1: CSV File
+#df = loader.load('csv', 'data.csv')
+    
+    # OPTION 2: Excel File
+#df = loader.load('csv', 'data.xlsx')  # CSV connector handles both
+    
+    # OPTION 3: Google Sheets
+#df = loader.load('google_sheets', {
+         #'sheet_id': os.getenv('SHEET_ID'),
+         #'range': 'A1:Z1000'
+     #})
+    
+    # OPTION 4: Docker PostgreSQL Database
+df = loader.load('database', {
+        'connection_string': 'postgresql://postgres:testpass@localhost:5432/testdb',
+        'table': 'sales'  # or use 'query': 'SELECT * FROM sales'
+    })
+    
+    # OPTION 5: SQLite Database
+    # df = loader.load('database', {
+    #     'connection_string': 'sqlite:///database.db',
+    #     'table': 'sales'
+    # })
+    
+    # OPTION 6: Using environment variables (if .env is configured)
+    # df = loader.load_from_env()  # Reads DATA_SOURCE_TYPE from .env
+mapper = SchemaMapper(df)
 clean_df, mapping, warnings = mapper.map_schema()
 
 print("Column Mapping:")

@@ -82,7 +82,7 @@ class AutonomousAnalyst:
             })
             raise
 
-    @timer(operation='run')
+    @timer(operation='autonomous_run')
     def run(self, question=None):
         """
         Run analysis based on a question.
@@ -239,7 +239,7 @@ class AutonomousAnalyst:
                 },
                 session_id=self.session_id
             )
-
+            self.perf_tracker.export_metrics()
             # Ensure JSON-safe return values
             return (
                 make_json_safe(raw_plan),

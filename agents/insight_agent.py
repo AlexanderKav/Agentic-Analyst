@@ -3,6 +3,7 @@ import json
 import re
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+from agents.monitoring import get_performance_tracker, timer, get_audit_logger, get_cost_tracker
 import numpy as np
 import pandas as pd
 
@@ -31,27 +32,29 @@ def extract_json_from_text(text):
     import json
     
     # First, remove any // comments from the text
-    # This handles both single-line and inline comments
     lines = text.split('\n')
     cleaned_lines = []
     for line in lines:
-        # Remove // comments (but not from URLs or data)
         if '//' in line:
-            # Check if // is part of a URL or data
             parts = line.split('//')
-            # Keep the part before //, but check if it's likely a comment
-            # If the part before // doesn't end with a number or quote, it's probably a comment
-            if len(parts) > 1:
-                # Simple heuristic: if the part before // ends with a number or quote, it might be data
-                before_comment = parts[0].rstrip()
-                if before_comment and before_comment[-1] in '0123456789"\'':  # Likely data with // in value
-                    cleaned_lines.append(line)  # Keep the whole line
-                else:
-                    cleaned_lines.append(parts[0].rstrip())  # Remove comment
+            before_comment = parts[0].rstrip()
+            if before_comment and before_comment[-1] in '0123456789"\'':  # Likely data with // in value
+                cleaned_lines.append(line)  # Keep the whole line
+            else:
+                cleaned_lines.append(parts[0].rstrip())  # Remove comment
         else:
             cleaned_lines.append(line)
     
     cleaned_text = '\n'.join(cleaned_lines)
+    
+    # ADD THIS: Fix numbers with commas (e.g., "25,895.0" -> "25895.0")
+    def fix_number_commas(match):
+        """Remove commas from numbers"""
+        num_str = match.group(0)
+        return num_str.replace(',', '')
+    
+    # Find and fix numbers with commas (pattern: digits, comma, digits)
+    cleaned_text = re.sub(r'\d+,\d+\.?\d*', fix_number_commas, cleaned_text)
     
     # Try to find JSON block
     match = re.search(r'\{.*\}', cleaned_text, flags=re.DOTALL)
@@ -142,7 +145,7 @@ Return ONLY valid JSON, nothing else, in this format:
   "human_readable_summary": "..."  # one paragraph summary suitable for email
 }}
 """)
-
+    @timer(operation='generate_insights')
     def generate_insights(self, data, question="General business insights"):
         try:
             # Convert tool results to JSON-safe dict
