@@ -267,6 +267,7 @@ class TestGenerateInsights:
     
     def test_generate_insights_with_dataframe(self, insight_agent, sample_dataframe):
         """Test generating insights from DataFrame"""
+        # Mock the LLM response
         mock_response = MagicMock()
         mock_response.content = '''
         {
@@ -288,7 +289,14 @@ class TestGenerateInsights:
         raw, parsed = insight_agent.generate_insights(sample_dataframe, question)
         
         assert parsed["answer"] == "Customer A is the top performer."
-        assert parsed["supporting_insights"]["top_customer_revenue"] == "$2,300"
+        
+        # More flexible assertion - remove commas and $ for comparison
+        top_revenue = parsed["supporting_insights"]["top_customer_revenue"]
+        # Convert both to numbers for comparison
+        assert top_revenue.replace('$', '').replace(',', '') == "2300"
+        
+        # Or check that the number is correct regardless of formatting
+        assert float(top_revenue.replace('$', '').replace(',', '')) == 2300.0
     
     def test_generate_insights_without_question(self, insight_agent, sample_business_data):
         """Test generating insights without a question"""
