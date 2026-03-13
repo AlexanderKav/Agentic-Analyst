@@ -30,8 +30,31 @@ def extract_json_from_text(text):
     import re
     import json
     
+    # First, remove any // comments from the text
+    # This handles both single-line and inline comments
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        # Remove // comments (but not from URLs or data)
+        if '//' in line:
+            # Check if // is part of a URL or data
+            parts = line.split('//')
+            # Keep the part before //, but check if it's likely a comment
+            # If the part before // doesn't end with a number or quote, it's probably a comment
+            if len(parts) > 1:
+                # Simple heuristic: if the part before // ends with a number or quote, it might be data
+                before_comment = parts[0].rstrip()
+                if before_comment and before_comment[-1] in '0123456789"\'':  # Likely data with // in value
+                    cleaned_lines.append(line)  # Keep the whole line
+                else:
+                    cleaned_lines.append(parts[0].rstrip())  # Remove comment
+        else:
+            cleaned_lines.append(line)
+    
+    cleaned_text = '\n'.join(cleaned_lines)
+    
     # Try to find JSON block
-    match = re.search(r'\{.*\}', text, flags=re.DOTALL)
+    match = re.search(r'\{.*\}', cleaned_text, flags=re.DOTALL)
     if not match:
         print("No JSON pattern found in text")
         return {}

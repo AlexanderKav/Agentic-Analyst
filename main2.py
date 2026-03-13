@@ -1,5 +1,6 @@
 # main.py
 from connectors.google_sheets import GoogleSheetsConnector
+from connectors.csv_sheets import CSVConnector
 from agents.schema_mapper import SchemaMapper
 from agents.analytics_agent import AnalyticsAgent
 from agents.planner_agent import PlannerAgent
@@ -21,6 +22,10 @@ load_dotenv()
 SHEET_ID = os.getenv('SHEET_ID')
 connector = GoogleSheetsConnector(sheet_id=SHEET_ID)
 raw_df = connector.fetch_sheet()
+
+#csv_path = os.getenv('CSV_PATH', 'updated.csv')  # Set your CSV file path
+#connector = CSVConnector(csv_path)
+#raw_df = connector.fetch_data()  # Note: fetch_data(), not fetch_sheet()
 
 mapper = SchemaMapper(raw_df)
 clean_df, mapping, warnings = mapper.map_schema()
