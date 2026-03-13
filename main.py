@@ -1,151 +1,153 @@
+# main.py
 from connectors.google_sheets import GoogleSheetsConnector
+from connectors.csv_sheets import CSVConnector
 from agents.schema_mapper import SchemaMapper
-import os 
+from agents.analytics_agent import AnalyticsAgent
+from agents.planner_agent import PlannerAgent
+from agents.insight_agent import InsightAgent
+from agents.visualization_agent import VisualizationAgent
+from agents.autonomous_analyst import AutonomousAnalyst
+
+import os
 from dotenv import load_dotenv
+import pandas as pd
+import json
 
-SHEET_ID = "1twP-fGO3diHJJNR-LIZIpeRtwcZc-YjRuUcN7cLCjIA"
+# Load environment variables (API keys)
+load_dotenv()
 
-connector = GoogleSheetsConnector(sheet_id=SHEET_ID)
-df = connector.fetch_sheet()
+def load_data(source, source_type=None):
+    """Load data from various sources
+    
+    Args:
+        source: The sheet ID or file path
+        source_type: Optional explicit type ('google_sheets' or 'csv')
+    """
+    # If source type is explicitly provided
+    if source_type == 'google_sheets':
+        connector = GoogleSheetsConnector(source)
+        return connector.fetch_sheet()
+    elif source_type == 'csv':
+        connector = CSVConnector(source)
+        return connector.fetch_data()
+    
+    # Otherwise try to infer
+    if source.endswith('.csv'):
+        connector = CSVConnector(source)
+        return connector.fetch_data()
+    else:
+        # Assume it's a Google Sheet ID
+        connector = GoogleSheetsConnector(source)
+        return connector.fetch_sheet()
 
-mapper = SchemaMapper(df)
-clean_df, mapping = mapper.map_schema()
+# -------------------------
+# Load and clean data
+# -------------------------
+# For Google Sheets
+DATA_SOURCE = os.getenv('SHEET_ID')
+if DATA_SOURCE:
+    raw_df = load_data(DATA_SOURCE, source_type='google_sheets')
+    print("GOOOOOOGLE")
+else:
+    # For CSV
+    DATA_SOURCE = os.getenv('CSV_PATH', 'updated.csv')
+    raw_df = load_data(DATA_SOURCE, source_type='csv')
+    print("CSSSSSSSSSSSVVVVVVVV")
+# -------------------------
+# Load and clean data
+# -------------------------
+#SHEET_ID = os.getenv('SHEET_ID')
+#connector = GoogleSheetsConnector(sheet_id=SHEET_ID)
+#raw_df = connector.fetch_sheet()
+
+#csv_path = os.getenv('CSV_PATH', 'updated.csv')  # Set your CSV file path
+#connector = CSVConnector(csv_path)
+#raw_df = connector.fetch_data()  # Note: fetch_data(), not fetch_sheet()
+
+mapper = SchemaMapper(raw_df)
+clean_df, mapping, warnings = mapper.map_schema()
 
 print("Column Mapping:")
 print(mapping)
+if warnings:
+    print("Warnings during mapping:")
+    for w in warnings:
+        print("-", w)
 
-print("\nCleaned DataFrame:")
+print("\nCleaned DataFrame (head):")
 print(clean_df.head())
 
-
-
-print("-----------------------------")
-from agents.analytics_agent import AnalyticsAgent
-
+# -------------------------
+# Initialize Agents
+# -------------------------
 analytics = AnalyticsAgent(clean_df)
-
-kpis = analytics.compute_kpis()
-print("\nKPIs:")
-print(kpis)
-
-rev_by_customer = analytics.revenue_by_customer()
-print("\nRevenue by Customer:")
-print(rev_by_customer)
-
-print(analytics.df.dtypes)
-
-
-
-print("-----------------------------")
-print("\nMonthly Revenue:")
-print(analytics.monthly_revenue())
-
-
-
-print("-----------------------------")
-print("\nMonthly Growth:")
-print(analytics.monthly_growth())
-
-print("-----------------------------")
-print("\nMonthly Profit:")
-print(analytics.monthly_profit())
-
-print("-----------------------------")
-print("\nRevenue Spikes:")
-print(analytics.detect_revenue_spikes())
-
-
-print("-----------------------------")
-print("\nRevenue Spikes:")
-print(analytics.generate_summary())
-
-#Insight Agent
-'''
-from agents.insight_agent import InsightAgent
-
-insight_agent = InsightAgent()
-
-insights = insight_agent.generate_insights(analytics.df)
-
-import json
-print(json.dumps(insights, indent=2))
-'''
-
-#######################################################
-from agents.planner_agent import PlannerAgent
-from agents.insight_agent import InsightAgent
-import json
-
-# Planner
 planner = PlannerAgent()
-question = "How is the business performing and are there any risks?"
-
-raw_plan, plan = planner.create_plan(question)
-print("RAW PLAN:", raw_plan)
-print("AI Plan:", json.dumps(plan, indent=2))
-
-# Run tools
-import pandas as pd
-
-analytics_cache = {}
-
-def cached_run(tool_name):
-    if tool_name in analytics_cache:
-        return analytics_cache[tool_name]
-    result = analytics.run_tool(tool_name)
-    analytics_cache[tool_name] = result
-    return result
-
-results = {}
-
-for tool in plan["plan"]:
-    #tool_result = analytics.run_tool(tool)
-    tool_result = cached_run(tool)
-
-    if tool == "revenue_by_customer":
-        # Keep only top 10 customers
-        tool_result = tool_result.sort_values("revenue", ascending=False).head(10)
-
-    if isinstance(tool_result, pd.DataFrame):
-        tool_result = tool_result.copy()
-        # Convert datetime columns to string
-        for col in tool_result.select_dtypes(include=["datetime64[ns]", "datetime64[ns, UTC]"]):
-            tool_result[col] = tool_result[col].astype(str)
-        tool_result = tool_result.to_dict(orient="records")
-
-    elif isinstance(tool_result, pd.Series):
-        # Convert datetime index to string
-        if pd.api.types.is_datetime64_any_dtype(tool_result.index):
-            tool_result.index = tool_result.index.astype(str)
-        # Convert values if needed
-        if pd.api.types.is_datetime64_any_dtype(tool_result):
-            tool_result = tool_result.apply(str)
-        tool_result = tool_result.to_dict()
-
-    results[tool] = tool_result
-
-print("\nTool Results:")
-print(json.dumps(results, indent=2))
-
-# Generate insights
 insight_agent = InsightAgent()
-raw_insights, insights = insight_agent.generate_insights(results)
+viz_agent = VisualizationAgent()
+# -------------------------
+# Define Autonomous Analyst (LangGraph)
+# -------------------------
+
+
+# -------------------------
+# Run the workflow
+# -------------------------
+autonomous_analyst = AutonomousAnalyst(planner, analytics, insight_agent, viz_agent)
+
+#question = "How is the business performing and are there any risks?"
+#question = "Show profit trends in 2024 with a chart"
+question = "Which three products contributed the most to revenue in 2024, and how did their monthly sales trend over the year?"
+#question = "Which customers show declining revenue trends over the past 6 months?"
+#question = ""
+if question is None or question.strip() == "":
+    question = "Provide a general business performance and risk overview."
+print(question)
+raw_plan, plan, results, raw_insights, insights = autonomous_analyst.run(question)
+
+
+# -------------------------
+# Display outputs
+# -------------------------
+print("\nRAW PLAN:")
+print(raw_plan)
+
+print("\nAI Plan (JSON):")
+print(json.dumps(plan, indent=2))
+
+print("\nTool Results (JSON):")
+print(json.dumps(results, indent=2))
 
 print("\nRAW INSIGHT RESPONSE:")
 print(raw_insights)
 
-print("\nAI Business Analysis:")
+print("\nAI Business Analysis (JSON):")
 print(json.dumps(insights, indent=2))
 
-print("-------------------------------------------------------------")
-from agents.autonomous_analyst import AutonomousAnalyst
 
-autonomous_analyst = AutonomousAnalyst(planner, analytics, insight_agent)
 
-question = "How is the business performing and are there any risks?"
-raw_plan, plan, results, raw_insights, insights = autonomous_analyst.run(question)
+#from automation.report_scheduler import ReportScheduler
 
-import json
-print("AI Plan:", json.dumps(plan, indent=2))
-print("Tool Results:", json.dumps(results, indent=2))
-print("AI Business Insights:", json.dumps(insights, indent=2))
+#scheduler = ReportScheduler(autonomous_analyst)
+
+#scheduler.start()
+
+
+#from agents.visualization_agent import VisualizationAgent
+
+#viz_agent = VisualizationAgent(analytics)
+
+# Example user question
+#question = "Show profit trends in 2024"
+
+#charts = viz_agent.run(question)
+#print("Generated Charts:", charts)
+
+###############################
+#while True:
+
+  #  question = input("\nAsk a business question: ")
+
+  #  raw_plan, plan, results, raw_insights, insights = autonomous_analyst.run(question)
+
+  #  print("\nAI Insights:")
+   # print(json.dumps(insights, indent=2))
