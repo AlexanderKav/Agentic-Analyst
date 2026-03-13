@@ -47,7 +47,6 @@ def extract_json_from_text(text):
     except json.JSONDecodeError:
         try:
             # Second try: fix unquoted keys
-            # Add quotes around keys
             json_text = re.sub(r'([{,])\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', json_text)
             return json.loads(json_text)
         except json.JSONDecodeError:
@@ -58,8 +57,23 @@ def extract_json_from_text(text):
             except json.JSONDecodeError as e:
                 print(f"Warning: unable to parse AI JSON safely. Error: {e}")
                 print(f"Problematic JSON text: {json_text[:200]}...")
+                
+                # Last resort: try to extract just the answer
+                try:
+                    # Look for "answer" field
+                    answer_match = re.search(r'"answer"\s*:\s*"([^"]+)"', json_text)
+                    if answer_match:
+                        return {
+                            "answer": answer_match.group(1),
+                            "supporting_insights": {},
+                            "anomalies": {},
+                            "recommended_metrics": {},
+                            "human_readable_summary": answer_match.group(1)
+                        }
+                except:
+                    pass
+                
                 return {}
-
 
 class InsightAgent:
 
@@ -128,11 +142,23 @@ Return ONLY valid JSON, nothing else, in this format:
             # Extract JSON safely
             parsed_json = extract_json_from_text(raw)
             
-            # If parsing failed but we have raw text, try to create a simple response
+            # Check if the parsed JSON itself contains a nested JSON string
+            if parsed_json and 'answer' in parsed_json:
+                answer = parsed_json['answer']
+                # If answer looks like a JSON string, try to parse it
+                if isinstance(answer, str) and answer.strip().startswith('{'):
+                    try:
+                        nested = json.loads(answer)
+                        if isinstance(nested, dict) and 'answer' in nested:
+                            # Use the nested structure instead
+                            parsed_json = nested
+                    except:
+                        pass  # Keep original if parsing fails
+            
+            # If parsing failed but we have raw text, create a simple response
             if not parsed_json and raw:
-                # Create a minimal valid response
                 parsed_json = {
-                    "answer": raw[:500],  # First 500 chars as answer
+                    "answer": raw[:500],
                     "supporting_insights": {},
                     "anomalies": {},
                     "recommended_metrics": {},
