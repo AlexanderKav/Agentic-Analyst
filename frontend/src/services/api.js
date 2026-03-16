@@ -9,47 +9,52 @@ const api = axios.create({
   },
 });
 
-// File upload with question (handles both CSV and Excel)
+// File upload with question
 export const uploadFile = async (file, question = '') => {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('question', question || '');
 
-  try {
-    const response = await axios.post(`${API_BASE_URL}/analysis/upload`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Upload error:', error.response?.data || error.message);
-    throw error;
-  }
+  const response = await axios.post(`${API_BASE_URL}/analysis/upload`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
 };
 
-// Direct analysis with database
-export const analyzeDatabase = async (question, connectionConfig) => {
-  try {
-    const response = await api.post('/analysis/analyze', {
-      question: question || '',
-      data_source: 'database',
-      source_config: connectionConfig,
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Analysis error:', error.response?.data || error.message);
-    throw error;
-  }
+// Database analysis
+export const analyzeDatabase = async (question, dbConfig) => {
+  const response = await api.post('/analysis/database', {
+    question: question || '',
+    connection_config: dbConfig
+  });
+  return response.data;
+};
+
+// Test database connection
+export const testDatabaseConnection = async (dbConfig) => {
+  const response = await api.post('/analysis/test-connection', dbConfig);
+  return response.data;
 };
 
 // Health check
 export const checkHealth = async () => {
+  const response = await axios.get('http://localhost:8000/health');
+  return response.data;
+};
+
+// Check if chart exists
+export const checkChartExists = async (filename) => {
   try {
-    const response = await axios.get('http://localhost:8000/health');
-    return response.data;
+    const response = await axios.head(`http://localhost:8000/api/v1/analysis/chart/${filename}`);
+    return response.status === 200;
   } catch (error) {
-    console.error('Health check error:', error.message);
-    throw error;
+    return false;
   }
+};
+
+// Get chart URL
+export const getChartUrl = (filename, key = 0) => {
+  return `http://localhost:8000/api/v1/analysis/chart/${encodeURIComponent(filename)}?key=${key}`;
 };

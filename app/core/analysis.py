@@ -187,3 +187,96 @@ class AnalysisOrchestrator:
         
         else:
             raise ValueError(f"Unsupported source type: {source_type}")
+
+
+    async def analyze_dataframe(self, df: pd.DataFrame, question: str) -> Tuple[Dict[str, Any], float]:
+        """
+        Analyze a pandas DataFrame directly (used by both file upload and database)
+        """
+        start_time = time.time()
+        
+        try:
+            print(f"🧹 Cleaning and mapping schema...")
+            mapper = SchemaMapper(df)
+            clean_df, mapping, warnings = mapper.map_schema()
+            print(f"✅ Schema mapped. Shape: {clean_df.shape}")
+            
+            analytics = AnalyticsAgent(clean_df)
+            
+            analyst = AutonomousAnalyst(
+                planner=self.planner,
+                analytics=analytics,
+                insight_agent=self.insight,
+                viz_agent=self.viz
+            )
+            
+            if not question or question.strip() == "":
+                # Generic overview
+                print("📊 Generating generic overview")
+                kpis = analytics.compute_kpis()
+                top_customers = analytics.revenue_by_customer().head(5).to_dict() if hasattr(analytics, 'revenue_by_customer') else {}
+                top_products = analytics.revenue_by_product().head(5).to_dict() if hasattr(analytics, 'revenue_by_product') else {}
+                monthly_trend = analytics.monthly_revenue().to_dict() if hasattr(analytics, 'monthly_revenue') else {}
+                anomalies = analytics.detect_revenue_spikes().to_dict() if hasattr(analytics, 'detect_revenue_spikes') else {}
+                
+                overview = {
+                    "answer": "Here's a comprehensive overview of your business data:",
+                    "supporting_insights": {
+                        "key_metrics": kpis,
+                        "top_customers": top_customers,
+                        "top_products": top_products,
+                        "monthly_trend": monthly_trend,
+                        "anomalies_detected": len(anomalies) > 0
+                    },
+                    "anomalies": anomalies if anomalies else {"note": "No significant anomalies detected"},
+                    "recommended_metrics": {
+                        "customer_retention": "Analyze customer retention rates",
+                        "profit_margin_trend": "Track profit margin over time",
+                        "seasonal_patterns": "Look for seasonal patterns in your data"
+                    },
+                    "human_readable_summary": self._generate_overview_summary(
+                        kpis, top_customers, top_products, anomalies
+                    )
+                }
+                
+                results = {
+                    "kpis": kpis,
+                    "top_customers": top_customers,
+                    "top_products": top_products,
+                    "monthly_trend": monthly_trend
+                }
+                
+                insights = overview["human_readable_summary"]
+                plan = {"plan": ["compute_kpis", "revenue_by_customer", "revenue_by_product", "monthly_revenue", "detect_revenue_spikes"]}
+                
+            else:
+                print(f"❓ Question: {question}")
+                raw_plan, plan, results, raw_insights, insights = analyst.run(question)
+            
+            execution_time = time.time() - start_time
+            
+            return {
+                "success": True,
+                "insights": insights,
+                "results": results,
+                "plan": plan,
+                "warnings": warnings,
+                "mapping": mapping,
+                "data_summary": {
+                    "rows": len(clean_df),
+                    "columns": list(clean_df.columns)
+                },
+                "execution_time": execution_time,
+                "is_generic_overview": not question or question.strip() == ""
+            }, execution_time
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            execution_time = time.time() - start_time
+            return {
+                "success": False,
+                "error": str(e),
+                "execution_time": execution_time,
+                "is_generic_overview": False
+            }, execution_time

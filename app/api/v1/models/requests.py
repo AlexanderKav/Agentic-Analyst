@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 from enum import Enum
 
 class DataSourceType(str, Enum):
@@ -13,21 +13,17 @@ class AnalysisRequest(BaseModel):
     question: str = Field(..., description="The question to analyze")
     data_source: DataSourceType = Field(..., description="Type of data source")
     source_config: Dict[str, Any] = Field(..., description="Configuration for the data source")
-    
-    class Config:
-        json_schema_extra = {  # Changed from schema_extra to json_schema_extra
-            "example": {
-                "question": "What were our top products by revenue?",
-                "data_source": "database",
-                "source_config": {
-                    "connection_string": "postgresql://user:pass@localhost:5432/db",
-                    "table": "sales"
-                }
-            }
-        }
 
-class DatabaseConfig(BaseModel):
-    """Database connection configuration"""
-    connection_string: str
-    table: Optional[str] = None
-    query: Optional[str] = None
+class DatabaseConnectionRequest(BaseModel):
+    """Request model for database connection"""
+    question: str = Field(..., description="The question to analyze")
+    connection_config: Dict[str, Any] = Field(..., description="Database connection configuration")
+
+class DatabaseTestRequest(BaseModel):
+    """Request model for testing database connection"""
+    db_type: str
+    host: Optional[str] = None
+    port: Optional[str] = None
+    database: str
+    username: Optional[str] = None
+    password: Optional[str] = None
