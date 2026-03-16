@@ -19,34 +19,54 @@ class VisualizationAgent:
     # --------------------------------------------------
 
     def _plot_series(self, series, name):
-
         series = series.copy()
 
+        # Determine if it's time series or categorical
+        is_time_series = False
         try:
-            series.index = pd.to_datetime(series.index)
+            pd.to_datetime(series.index)
+            is_time_series = True
         except:
             pass
 
-        plt.figure(figsize=(8,5))
-        plt.plot(series.index, series.values, marker="o")
+        # Adjust figure size based on number of items
+        n_items = len(series)
+        if n_items > 20:
+            figsize = (14, 8)
+        elif n_items > 10:
+            figsize = (12, 6)
+        else:
+            figsize = (10, 6)
+
+        plt.figure(figsize=figsize)
+
+        if is_time_series:
+            # Time series - use line plot
+            plt.plot(series.index, series.values, marker="o")
+            plt.xlabel("Time")
+            plt.xticks(rotation=45, ha='right')
+        else:
+            # Categorical - use bar plot
+            if n_items > 15:
+                # Too many categories - use horizontal bar
+                series = series.sort_values()
+                plt.barh(range(n_items), series.values)
+                plt.yticks(range(n_items), series.index, fontsize=8)
+                plt.ylabel("Customer")
+            else:
+                # Few categories - use vertical bar
+                plt.bar(series.index, series.values)
+                plt.xticks(rotation=45, ha='right')
+                plt.xlabel("Customer")
 
         plt.title(name.replace("_", " ").title())
-        plt.xlabel("Time")
-        plt.ylabel("Value")
+        plt.ylabel("Revenue ($)")
         plt.grid(True)
-
-        filepath = os.path.join(self.output_dir, f"{name}.png")
-
-        print("Attempting to save chart to:", filepath)
-
+        
         plt.tight_layout()
-        plt.savefig(filepath, dpi=300)
+        filepath = os.path.join(self.output_dir, f"{name}.png")
+        plt.savefig(filepath, dpi=300, bbox_inches='tight')
         plt.close()
-
-        if os.path.exists(filepath):
-            print("Chart successfully saved:", filepath)
-        else:
-            print("WARNING: Chart failed to save")
 
         return filepath
 
