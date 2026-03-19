@@ -61,7 +61,7 @@ class SchemaMapper:
             use_live_rates: Whether to fetch live exchange rates (default: False)
             cache_duration_hours: How long to cache exchange rates (default: 24)
         """
-        self.df = df
+        self.original_df = df
         self.target_currency = 'USD'  # Always USD
         self.use_live_rates = use_live_rates
         self.cache_duration = cache_duration_hours
@@ -75,12 +75,15 @@ class SchemaMapper:
         }
 
     def map_schema(self):
+        """Map columns to standard schema and return ONLY standard columns"""
         mapping = {}
         new_columns = {}
         warnings = []
         used_standards = set()  # Track which standard columns have been used
+        unmapped_columns = []   # Collect all unmapped columns
 
-        for col in self.df.columns:
+        # First pass: identify all mapped columns
+        for col in self.original_df.columns:
             lower_col = col.lower().strip()
             matched = False
 
@@ -105,24 +108,61 @@ class SchemaMapper:
                     break
 
             if not matched:
-                warnings.append(col)
+                unmapped_columns.append(col)
 
-        df_clean = self.df.rename(columns=new_columns)
+        # Add a single warning for all unmapped columns
+        if unmapped_columns:
+            if len(unmapped_columns) <= 5:
+                # If 5 or fewer, list them all
+                warnings.append(
+                    f"Columns not mapped to standard schema and will be dropped: {', '.join(unmapped_columns)}"
+                )
+            else:
+                # If more than 5, show count and sample
+                sample = ', '.join(unmapped_columns[:5])
+                warnings.append(
+                    f"{len(unmapped_columns)} columns not mapped to standard schema and will be dropped "
+                    f"(sample: {sample}, ...)"
+                )
+                # Store the full list for potential later use
+                self.unmapped_columns = unmapped_columns
+
+        # Create a new dataframe with ONLY the mapped columns
+        mapped_columns = list(new_columns.keys())
+        if mapped_columns:
+            df_mapped = self.original_df[mapped_columns].copy()
+            df_mapped = df_mapped.rename(columns=new_columns)
+        else:
+            df_mapped = pd.DataFrame()
+            warnings.append("No columns could be mapped to standard schema")
 
         # Add missing standard columns with default None
         for standard_col in self.STANDARD_SCHEMA.keys():
-            if standard_col not in df_clean.columns:
-                df_clean[standard_col] = None
+            if standard_col not in df_mapped.columns:
+                df_mapped[standard_col] = None
                 if standard_col == 'currency' and 'currency' not in used_standards:
-                    df_clean['currency'] = 'USD'
+                    df_mapped['currency'] = 'USD'
                     warnings.append("Currency column added with default: USD")
                 else:
-                    warnings.append(f"Missing column added: {standard_col}")
+                    warnings.append(f"Missing column added with default None: {standard_col}")
+
+        # Log how many columns were dropped
+        original_col_count = len(self.original_df.columns)
+        mapped_col_count = len(mapped_columns)
+        if original_col_count > mapped_col_count:
+            warnings.append(
+                f"Dropped {original_col_count - mapped_col_count} unmapped columns "
+                f"({mapped_col_count} standard columns kept)"
+            )
+
+        # Ensure columns are in a consistent order
+        column_order = [col for col in self.STANDARD_SCHEMA.keys() if col in df_mapped.columns]
+        df_mapped = df_mapped[column_order]
 
         # Perform currency conversion
-        df_clean = self._convert_to_usd(df_clean, warnings)
+        df_mapped = self._convert_to_usd(df_mapped, warnings)
 
-        return df_clean, mapping, warnings
+        return df_mapped, mapping, warnings
     
     def is_schema_acceptable(self, mapping, warnings):
         """Determine if the mapped schema is acceptable for analysis"""
@@ -136,7 +176,7 @@ class SchemaMapper:
             return False, f"Missing critical columns: {missing}"
         
         # Check if too many columns are unmatched
-        if len(warnings) > len(self.df.columns) * 0.3:  # More than 30% unmatched
+        if len([w for w in warnings if "not mapped" in w]) > len(self.original_df.columns) * 0.3:  # More than 30% unmatched
             return False, "Too many columns could not be mapped"
         
         return True, "Schema acceptable"

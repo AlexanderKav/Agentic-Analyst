@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Paper,
   Typography,
@@ -10,6 +10,9 @@ import {
   Chip,
   Alert,
   Avatar,
+  Collapse,
+  IconButton,
+  Tooltip
 } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import WarningIcon from '@mui/icons-material/Warning';
@@ -19,9 +22,14 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import ReportProblemIcon from '@mui/icons-material/ReportProblem';
 import TipsAndUpdatesIcon from '@mui/icons-material/TipsAndUpdates';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import ChartViewer from './ChartViewer';
 
 const ResultsDisplay = ({ results, userQuestion }) => {
+  const [expandedWarnings, setExpandedWarnings] = useState(false);
+  
   if (!results) return null;
   console.log("🎯 ResultsDisplay received:", results);
   console.log("🎯 User question:", userQuestion);
@@ -75,6 +83,22 @@ const ResultsDisplay = ({ results, userQuestion }) => {
     }
   }
 
+  // Process warnings to identify column drop warnings
+  const columnDropWarnings = [];
+  const otherWarnings = [];
+  
+  if (warnings && warnings.length > 0) {
+    warnings.forEach(warning => {
+      if (warning.includes('columns not mapped') || 
+          warning.includes('Columns not mapped') ||
+          warning.includes('Dropped') && warning.includes('unmapped columns')) {
+        columnDropWarnings.push(warning);
+      } else {
+        otherWarnings.push(warning);
+      }
+    });
+  }
+
   return (
     <Paper sx={{ p: 3 }}>
       {/* Header with Context */}
@@ -104,10 +128,64 @@ const ResultsDisplay = ({ results, userQuestion }) => {
         </Box>
       </Box>
 
-      {/* Warnings */}
-      {warnings && warnings.length > 0 && (
+      {/* Column Drop Warnings - Collapsible */}
+      {columnDropWarnings.length > 0 && (
         <Box sx={{ mb: 2 }}>
-          {warnings.map((warning, idx) => (
+          <Alert 
+            severity="info" 
+            icon={<VisibilityIcon />}
+            action={
+              <IconButton
+                aria-label="expand"
+                size="small"
+                onClick={() => setExpandedWarnings(!expandedWarnings)}
+                sx={{ mt: -0.5 }}
+              >
+                {expandedWarnings ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              </IconButton>
+            }
+            sx={{ 
+              backgroundColor: '#e3f2fd',
+              '& .MuiAlert-message': { width: '100%' }
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+              <Typography variant="body2">
+                <strong>📋 Column Notice:</strong> Some columns were not recognized and were dropped
+              </Typography>
+              <Tooltip title={expandedWarnings ? "Hide details" : "Show details"}>
+                <Typography variant="caption" sx={{ ml: 2, color: '#1976d2', fontWeight: 'bold', cursor: 'pointer' }}>
+                  {expandedWarnings ? '▼' : '▶'} {columnDropWarnings.length} warning(s)
+                </Typography>
+              </Tooltip>
+            </Box>
+          </Alert>
+          
+          <Collapse in={expandedWarnings}>
+            <Box sx={{ 
+              mt: 1, 
+              p: 2, 
+              bgcolor: '#f5f5f5', 
+              borderRadius: 1,
+              borderLeft: '4px solid #1976d2'
+            }}>
+              {columnDropWarnings.map((warning, idx) => (
+                <Typography key={idx} variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.85rem', mb: 0.5 }}>
+                  • {warning}
+                </Typography>
+              ))}
+              <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block', fontStyle: 'italic' }}>
+                Only standard columns (date, revenue, customer, product, region, cost, currency, quantity, payment_status, notes) are used in analysis. All other columns are automatically dropped.
+              </Typography>
+            </Box>
+          </Collapse>
+        </Box>
+      )}
+
+      {/* Other Warnings (non-column related) */}
+      {otherWarnings.length > 0 && (
+        <Box sx={{ mb: 2 }}>
+          {otherWarnings.map((warning, idx) => (
             <Alert key={idx} severity="warning" icon={<WarningIcon />} sx={{ mb: 1 }}>
               {warning}
             </Alert>
