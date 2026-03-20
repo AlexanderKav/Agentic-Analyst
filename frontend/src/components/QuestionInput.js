@@ -6,6 +6,15 @@ import AnalyticsIcon from '@mui/icons-material/Analytics';
 const QuestionInput = ({ onSubmit, loading }) => {
   const [question, setQuestion] = useState('');
 
+  const suggestedQuestions = [
+    "What are our top products by revenue?",
+    "Show me revenue trends over time",
+    "Who are our top customers?",
+    "What's our profit margin?",
+    "Which region has the highest sales?",
+    "How has revenue grown month-over-month?"
+];
+
   const handleSubmit = (e) => {
     e.preventDefault();
     // Allow empty questions (for general overview)

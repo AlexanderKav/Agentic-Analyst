@@ -2,7 +2,7 @@
 import time
 import pandas as pd
 from typing import Dict, Any, Tuple, Optional
-
+import re
 from connectors.data_loader import DataLoader
 from agents.schema_mapper import SchemaMapper
 from agents.autonomous_analyst import AutonomousAnalyst
@@ -24,6 +24,55 @@ class AnalysisOrchestrator:
         self.planner = PlannerAgent()
         self.insight = InsightAgent()
         self.viz = VisualizationAgent()
+
+    def _is_question_relevant(self, question: str, df: pd.DataFrame) -> tuple[bool, str]:
+        """Check if question is relevant to the data"""
+        
+        # Get data context
+        data_columns = set(df.columns)
+        data_context = {
+            'columns': list(data_columns),
+            'has_date': 'date' in data_columns,
+            'has_revenue': 'revenue' in data_columns,
+            'has_customer': 'customer' in data_columns,
+            'has_product': 'product' in data_columns,
+        }
+        
+        # Define relevant keywords based on data
+        relevant_keywords = set()
+        if data_context['has_revenue']:
+            relevant_keywords.update(['revenue', 'sales', 'income', 'profit', 'money', 'earnings'])
+        if data_context['has_customer']:
+            relevant_keywords.update(['customer', 'client', 'buyer', 'account'])
+        if data_context['has_product']:
+            relevant_keywords.update(['product', 'item', 'service', 'plan'])
+        
+        # Also add generic business terms
+        relevant_keywords.update([
+            'top', 'best', 'worst', 'trend', 'growth', 'decline',
+            'increase', 'decrease', 'average', 'total', 'sum',
+            'month', 'year', 'quarter', 'performance', 'kpi'
+        ])
+        
+        # Check if question contains relevant keywords
+        question_lower = question.lower()
+        matched_keywords = [kw for kw in relevant_keywords if kw in question_lower]
+        
+        if matched_keywords:
+            return True, f"Question is relevant (matched: {', '.join(matched_keywords[:3])})"
+        
+        # Also check for obviously off-topic patterns
+        off_topic_patterns = [
+            r'\bhappiest\b', r'\bsaddest\b', r'\bweather\b', r'\bpolitics\b',
+            r'\bfamous\b', r'\bcelebrity\b', r'\bsports\b', r'\bmovie\b',
+            r'\bworld\s+record\b', r'\bwho\s+is\b', r'\bwhat\s+is\b.*\?$'
+        ]
+        
+        for pattern in off_topic_patterns:
+            if re.search(pattern, question_lower):
+                return False, f"Question appears to be off-topic. This system analyzes business data from your uploaded files."
+        
+        return False, "Question doesn't seem related to your business data. Try asking about revenue, customers, products, or trends."
     
     def validate_dataframe(self, df: pd.DataFrame):
         """Validate dataframe has minimum required columns and is safe"""
@@ -56,9 +105,143 @@ class AnalysisOrchestrator:
         """
         start_time = time.time()
         
+        # Helper function for relevance checking (can be moved to class method)
+        def is_question_relevant(question: str, df: pd.DataFrame) -> tuple[bool, str]:
+            """Quick check if question is relevant to business data"""
+            
+            if not question or not question.strip():
+                return True, "No question provided (using default overview)"
+            
+            # Get data columns for context
+            columns = [col.lower() for col in df.columns]
+            
+            # Business keywords - comprehensive list
+            business_keywords = [
+                # Revenue/Financial
+                'revenue', 'sales', 'profit', 'income', 'earnings', 'turnover',
+                'cost', 'expense', 'margin', 'price', 'value', 'amount',
+                'total', 'sum', 'average', 'mean', 'median', 'kpi', 'metric',
+                
+                # Customer related
+                'customer', 'client', 'buyer', 'account', 'user', 'subscription',
+                'retention', 'churn', 'acquisition', 'lifetime', 'ltv',
+                
+                # Product related
+                'product', 'item', 'service', 'plan', 'sku', 'category',
+                'inventory', 'stock', 'demand', 'popular', 'best', 'top',
+                'worst', 'ranking', 'rank',
+                
+                # Trends/Time
+                'trend', 'growth', 'decline', 'increase', 'decrease', 'change',
+                'month', 'year', 'quarter', 'weekly', 'daily', 'time', 'period',
+                'seasonal', 'forecast', 'predict', 'future',
+                
+                # Regional
+                'region', 'market', 'geo', 'location', 'country', 'city',
+                'area', 'territory', 'zone',
+                
+                # Performance
+                'performance', 'efficiency', 'conversion', 'rate', 'ratio',
+                'percentage', 'share', 'market share',
+                
+                # Status
+                'paid', 'pending', 'overdue', 'refunded', 'status', 'payment',
+                'order', 'transaction', 'invoice', 'subscription'
+            ]
+            
+            question_lower = question.lower()
+            
+            # Check if any business keywords match
+            matches = [kw for kw in business_keywords if kw in question_lower]
+            
+            # Check against column names (more specific matching)
+            column_matches = []
+            for col in columns:
+                col_words = col.split('_')
+                for word in col_words:
+                    if word in question_lower and len(word) > 2:
+                        column_matches.append(word)
+            column_matches = list(set(column_matches))
+            
+            # Check for column name matches (strong signal)
+            if column_matches:
+                return True, f"Question relates to data column(s): {', '.join(column_matches[:3])}"
+            
+            # Check for business keyword matches
+            if matches:
+                return True, f"Question is relevant (matched: {', '.join(matches[:3])})"
+            
+            # Check for obvious off-topic patterns
+            off_topic_patterns = [
+                r'\bhappiest\b', r'\bsaddest\b', r'\bweather\b', r'\bclimate\b',
+                r'\bpolitics\b', r'\belection\b', r'\bpresident\b', r'\bprime\s+minister\b',
+                r'\bfamous\b', r'\bcelebrity\b', r'\bactor\b', r'\bactress\b',
+                r'\bsports\b', r'\bfootball\b', r'\bsoccer\b', r'\bbasketball\b',
+                r'\bmovie\b', r'\bfilm\b', r'\bmusic\b', r'\bsong\b',
+                r'\bworld\s+record\b', r'\bguinness\b',
+                r'\bwho\s+is\b', r'\bwhat\s+is\b.*\?$', r'\bmeaning\s+of\b',
+                r'\bhistory\b', r'\binventor\b', r'\bdiscovery\b',
+                r'\brecipe\b', r'\bcooking\b', r'\bfood\b',
+                r'\btravel\b', r'\bvacation\b', r'\bholiday\b',
+                r'\bhow\s+to\s+make\b', r'\bhow\s+to\s+build\b'
+            ]
+            
+            for pattern in off_topic_patterns:
+                if re.search(pattern, question_lower):
+                    return False, "This question appears to be off-topic for business data analysis."
+            
+            # If we get here, the question is ambiguous
+            return False, "Question doesn't seem related to your business data. Try asking about revenue, customers, products, or trends."
+
         try:
             # 🔐 VALIDATE THE DATAFRAME FIRST
             self.validate_dataframe(df)
+            
+            # Check if question is relevant (if provided)
+            if question and question.strip():
+                is_relevant, relevance_message = is_question_relevant(question, df)
+                if not is_relevant:
+                    execution_time = time.time() - start_time
+                    # Generate helpful suggestions based on data columns
+                    columns = list(df.columns)
+                    column_hints = []
+                    if 'revenue' in [c.lower() for c in columns]:
+                        column_hints.append("📊 revenue")
+                    if 'customer' in [c.lower() for c in columns]:
+                        column_hints.append("👥 customer")
+                    if 'product' in [c.lower() for c in columns]:
+                        column_hints.append("🛍️ product")
+                    if 'region' in [c.lower() for c in columns]:
+                        column_hints.append("🌍 region")
+                    if 'date' in [c.lower() for c in columns]:
+                        column_hints.append("📅 date")
+                    
+                    suggested_questions = [
+                        "What are our top products by revenue?",
+                        "Show me revenue trends over time",
+                        "Who are our top customers?",
+                        "What's our profit margin?",
+                        "Which region has the highest sales?",
+                        "How has revenue grown month-over-month?"
+                    ]
+                    
+                    return {
+                        "success": False,
+                        "error": "irrelevant_question",
+                        "insights": f"❓ {relevance_message}\n\n" +
+                                    f"I'm designed to analyze business data. Your dataset contains columns like: {', '.join(columns[:8])}{'...' if len(columns) > 8 else ''}\n\n" +
+                                    f"Here are some questions you could ask:\n" +
+                                    "\n".join([f"  • {q}" for q in suggested_questions[:5]]),
+                        "results": {},
+                        "plan": {"plan": []},
+                        "warnings": [relevance_message],
+                        "data_summary": {
+                            "rows": len(df),
+                            "columns": list(df.columns)
+                        },
+                        "execution_time": execution_time,
+                        "is_generic_overview": False
+                    }, execution_time
             
             print(f"🧹 Cleaning and mapping schema...")
             mapper = SchemaMapper(df)
