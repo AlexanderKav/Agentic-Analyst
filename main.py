@@ -124,9 +124,9 @@ autonomous_analyst = AutonomousAnalyst(planner, analytics, insight_agent, viz_ag
 
 #question = "How is the business performing and are there any risks?"
 #question = "Show profit trends in 2024 with a chart"
-question = "Which three products contributed the most to revenue in 2024, and how did their monthly sales trend over the year?"
+#question = "Which three products contributed the most to revenue in 2024, and how did their monthly sales trend over the year?"
 #question = "Which customers show declining revenue trends over the past 6 months?"
-#question = ""
+question = ""
 if question is None or question.strip() == "":
     question = "Provide a general business performance and risk overview."
 print(question)

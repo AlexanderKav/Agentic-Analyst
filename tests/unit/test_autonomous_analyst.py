@@ -346,7 +346,8 @@ class TestRunWithoutQuestion:
         autonomous_analyst.planner.create_plan.assert_not_called()
         
         # Should use default plan with all tools
-        assert len(plan["plan"]) == 9  # All default tools
+        # Update from 9 to 10 because we added monthly_revenue_by_product
+        assert len(plan["plan"]) == 10  # All default tools (was 9)
         assert "compute_kpis" in plan["plan"]
         assert "monthly_profit" in plan["plan"]
         assert "monthly_growth" in plan["plan"]
@@ -355,7 +356,8 @@ class TestRunWithoutQuestion:
         assert "visualization" in plan["plan"]
         assert "revenue_by_customer" in plan["plan"]
         assert "revenue_by_product" in plan["plan"]
-        assert "monthly_revenue_by_customer" in plan["plan"]
+        assert "monthly_revenue_by_customer" in plan["plan"] 
+        assert "monthly_revenue_by_product" in plan["plan"]  # This is the new tool
         
         # Raw plan should be default message
         assert raw_plan == "Default general analysis plan applied."
@@ -372,8 +374,8 @@ class TestRunWithoutQuestion:
         else:
             # If called with keyword args
             assert kwargs.get("question") == "General business performance overview" or \
-                   kwargs.get("query") == "General business performance overview" or \
-                   "General business performance overview" in str(kwargs)
+                kwargs.get("query") == "General business performance overview" or \
+                "General business performance overview" in str(kwargs)
 
 
 class TestEdgeCases:
