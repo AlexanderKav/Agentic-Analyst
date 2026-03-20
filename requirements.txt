@@ -69,9 +69,6 @@ psycopg2-binary>=2.9.0
 
 slowapi>=0.1.9
 
-# Database
-DATABASE_URL=sqlite:///./agentic_analyst.db
-
 # Email (Gmail example)
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
