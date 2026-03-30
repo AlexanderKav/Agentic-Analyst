@@ -371,7 +371,7 @@ async def analyze_database(
             user_id=current_user.id,
             analysis_type="database",
             question=db_request.question or "General Overview",
-            results=cleaned_results,
+            raw_results=cleaned_results,
             data_source=cleaned_data_source
         )
         db.add(history)
@@ -909,7 +909,7 @@ async def upload_file(
             user_id=current_user.id,
             analysis_type="file",
             question=question or "General Overview",
-            results=cleaned_results,
+            raw_results=cleaned_results,
             data_source={
                 "filename": file.filename,
                 "file_type": file_type,
@@ -1063,7 +1063,7 @@ async def analyze_google_sheets(
             user_id=current_user.id,
             analysis_type="google_sheets",
             question=sheets_request.question or "General Overview",
-            results=cleaned_results,
+            raw_results=cleaned_results,
             data_source=cleaned_data_source
         )
         db.add(history)
@@ -1210,32 +1210,230 @@ async def get_analysis_history(
     limit: int = 10,
     offset: int = 0
 ):
-    """Get user's analysis history"""
-    history = db.query(AnalysisHistory).filter(
+    """Get user's analysis history with optional metric filters"""
+    # Build base query
+    query = db.query(AnalysisHistory).filter(
         AnalysisHistory.user_id == current_user.id
-    ).order_by(
+    )
+    
+    # Get total count for pagination
+    total = query.count()
+    
+    # Get paginated results
+    history = query.order_by(
         AnalysisHistory.created_at.desc()
     ).offset(offset).limit(limit).all()
     
-    return [
-        {
+    # Build response with additional stats
+    result = []
+    for h in history:
+        # Get summary metrics for this analysis (if available)
+        summary_metrics = {}
+        if h.metrics:
+            # Get key metrics for quick display
+            revenue_metric = next((m for m in h.metrics if m.metric_type == 'total_revenue'), None)
+            profit_metric = next((m for m in h.metrics if m.metric_type == 'profit_margin'), None)
+            
+            if revenue_metric:
+                summary_metrics['total_revenue'] = float(revenue_metric.metric_value)
+            if profit_metric:
+                summary_metrics['profit_margin'] = float(profit_metric.metric_value)
+        
+        # Get insight count
+        insight_count = len(h.insights) if h.insights else 0
+        
+        result.append({
             "id": h.id,
             "type": h.analysis_type,
             "question": h.question,
             "created_at": h.created_at.isoformat(),
-            "data_source": h.data_source
-        }
-        for h in history
-    ]
+            "data_source": h.data_source,
+            "summary_metrics": summary_metrics,
+            "insight_count": insight_count
+        })
+    
+    return {
+        "items": result,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    }
 
 
 @router.get("/history/{history_id}")
 async def get_analysis_by_id(
     history_id: int,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    include_raw: bool = False
+):
+    """Get specific analysis by ID with optional structured data"""
+    analysis = db.query(AnalysisHistory).filter(
+        AnalysisHistory.id == history_id,
+        AnalysisHistory.user_id == current_user.id
+    ).first()
+    
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    
+    # Build base response
+    response = {
+        "id": analysis.id,
+        "type": analysis.analysis_type,
+        "question": analysis.question,
+        "created_at": analysis.created_at.isoformat(),
+        "data_source": analysis.data_source,
+        "structured_metrics": [],
+        "insights": [],
+        "charts": []
+    }
+    
+    # Add structured metrics if available
+    if analysis.metrics:
+        metrics_by_category = {}
+        for metric in analysis.metrics:
+            metric_dict = {
+                "metric_type": metric.metric_type,
+                "metric_value": float(metric.metric_value) if metric.metric_value else None,
+                "category": metric.category,
+                "category_name": metric.category_name
+            }
+            if metric.metric_date:
+                metric_dict["metric_date"] = metric.metric_date.isoformat()
+            
+            # Group by category for better organization
+            cat_key = metric.category or "general"
+            if cat_key not in metrics_by_category:
+                metrics_by_category[cat_key] = []
+            metrics_by_category[cat_key].append(metric_dict)
+        
+        response["structured_metrics"] = metrics_by_category
+    
+    # Add structured insights if available
+    if analysis.insights:
+        insights_by_type = {}
+        for insight in analysis.insights:
+            insight_dict = {
+                "text": insight.insight_text,
+                "confidence_score": float(insight.confidence_score) if insight.confidence_score else None
+            }
+            
+            if insight.insight_type not in insights_by_type:
+                insights_by_type[insight.insight_type] = []
+            insights_by_type[insight.insight_type].append(insight_dict)
+        
+        response["insights"] = insights_by_type
+    
+    # Add chart references if available
+    if analysis.charts:
+        response["charts"] = [
+            {
+                "type": chart.chart_type,
+                "path": chart.chart_path,
+                "data": chart.chart_data
+            }
+            for chart in analysis.charts
+        ]
+    
+    # Include raw results if requested (for full context)
+    if include_raw and analysis.raw_results:
+        response["raw_results"] = analysis.raw_results
+    elif analysis.raw_results:
+        # Include a summary instead of full raw results
+        response["raw_results_summary"] = {
+            "has_raw_data": True,
+            "note": "Use ?include_raw=true to get full raw results"
+        }
+    
+    return response
+
+
+@router.get("/history/{history_id}/metrics")
+async def get_analysis_metrics(
+    history_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    metric_type: Optional[str] = None,
+    category: Optional[str] = None
+):
+    """Get only structured metrics for an analysis (lightweight)"""
+    analysis = db.query(AnalysisHistory).filter(
+        AnalysisHistory.id == history_id,
+        AnalysisHistory.user_id == current_user.id
+    ).first()
+    
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    
+    # Query metrics
+    query = db.query(AnalysisMetric).filter(AnalysisMetric.analysis_id == history_id)
+    
+    if metric_type:
+        query = query.filter(AnalysisMetric.metric_type == metric_type)
+    if category:
+        query = query.filter(AnalysisMetric.category == category)
+    
+    metrics = query.all()
+    
+    return {
+        "analysis_id": history_id,
+        "metrics": [
+            {
+                "type": m.metric_type,
+                "value": float(m.metric_value) if m.metric_value else None,
+                "category": m.category,
+                "category_name": m.category_name,
+                "date": m.metric_date.isoformat() if m.metric_date else None
+            }
+            for m in metrics
+        ]
+    }
+
+
+@router.get("/history/{history_id}/insights")
+async def get_analysis_insights(
+    history_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    insight_type: Optional[str] = None
+):
+    """Get only insights for an analysis (lightweight)"""
+    analysis = db.query(AnalysisHistory).filter(
+        AnalysisHistory.id == history_id,
+        AnalysisHistory.user_id == current_user.id
+    ).first()
+    
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    
+    # Query insights
+    query = db.query(AnalysisInsight).filter(AnalysisInsight.analysis_id == history_id)
+    
+    if insight_type:
+        query = query.filter(AnalysisInsight.insight_type == insight_type)
+    
+    insights = query.all()
+    
+    return {
+        "analysis_id": history_id,
+        "insights": [
+            {
+                "text": i.insight_text,
+                "type": i.insight_type,
+                "confidence": float(i.confidence_score) if i.confidence_score else None
+            }
+            for i in insights
+        ]
+    }
+
+
+@router.get("/history/{history_id}/charts")
+async def get_analysis_charts(
+    history_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get specific analysis by ID"""
+    """Get chart references for an analysis"""
     analysis = db.query(AnalysisHistory).filter(
         AnalysisHistory.id == history_id,
         AnalysisHistory.user_id == current_user.id
@@ -1245,12 +1443,115 @@ async def get_analysis_by_id(
         raise HTTPException(status_code=404, detail="Analysis not found")
     
     return {
-        "id": analysis.id,
-        "type": analysis.analysis_type,
-        "question": analysis.question,
-        "results": analysis.results,
-        "data_source": analysis.data_source,
-        "created_at": analysis.created_at.isoformat()
+        "analysis_id": history_id,
+        "charts": [
+            {
+                "type": chart.chart_type,
+                "path": chart.chart_path,
+                "data": chart.chart_data,
+                "url": f"/api/v1/analysis/chart/{chart.chart_path.split('/')[-1]}"
+            }
+            for chart in analysis.charts
+        ]
+    }
+
+
+@router.delete("/history/{history_id}")
+async def delete_analysis(
+    history_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete an analysis and all related data"""
+    analysis = db.query(AnalysisHistory).filter(
+        AnalysisHistory.id == history_id,
+        AnalysisHistory.user_id == current_user.id
+    ).first()
+    
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    
+    # Also delete associated chart files
+    import os
+    for chart in analysis.charts:
+        if chart.chart_path and os.path.exists(chart.chart_path):
+            try:
+                os.remove(chart.chart_path)
+                print(f"Deleted chart file: {chart.chart_path}")
+            except Exception as e:
+                print(f"Could not delete chart file: {e}")
+    
+    # Delete the analysis (cascades to metrics, insights, charts)
+    db.delete(analysis)
+    db.commit()
+    
+    return {"message": "Analysis deleted successfully"}
+
+
+@router.get("/history/aggregate/metrics")
+async def get_aggregate_metrics(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    metric_type: str = "total_revenue",
+    days: int = 30
+):
+    """Get aggregated metrics across all analyses (for dashboards)"""
+    from datetime import datetime, timedelta
+    
+    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    
+    metrics = db.query(AnalysisMetric).join(
+        AnalysisHistory
+    ).filter(
+        AnalysisHistory.user_id == current_user.id,
+        AnalysisHistory.created_at >= cutoff_date,
+        AnalysisMetric.metric_type == metric_type
+    ).all()
+    
+    if not metrics:
+        return {"metric_type": metric_type, "values": [], "trend": None}
+    
+    # Group by date
+    from collections import defaultdict
+    daily_values = defaultdict(list)
+    
+    for metric in metrics:
+        if metric.metric_date:
+            date_key = metric.metric_date.isoformat()
+        else:
+            # Use analysis creation date for non-time-series metrics
+            analysis = db.query(AnalysisHistory).filter(
+                AnalysisHistory.id == metric.analysis_id
+            ).first()
+            if analysis:
+                date_key = analysis.created_at.date().isoformat()
+            else:
+                continue
+        daily_values[date_key].append(float(metric.metric_value))
+    
+    # Calculate average per day
+    aggregated = [
+        {"date": date, "value": sum(values) / len(values)}
+        for date, values in sorted(daily_values.items())
+    ]
+    
+    # Calculate trend
+    trend = None
+    if len(aggregated) >= 2:
+        first_value = aggregated[0]["value"]
+        last_value = aggregated[-1]["value"]
+        if first_value > 0:
+            percent_change = ((last_value - first_value) / first_value) * 100
+            trend = {
+                "direction": "up" if last_value > first_value else "down",
+                "percent_change": round(percent_change, 1)
+            }
+    
+    return {
+        "metric_type": metric_type,
+        "values": aggregated,
+        "trend": trend,
+        "period_days": days
     }
 
 
@@ -1845,7 +2146,7 @@ async def upload_sqlite_file(
             user_id=current_user.id,
             analysis_type="sqlite",
             question=question or "General Overview",
-            results=cleaned_results,
+            raw_results=cleaned_results,
             data_source={
                 "filename": file.filename,
                 "table": table,
