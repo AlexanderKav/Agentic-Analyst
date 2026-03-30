@@ -26,6 +26,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import ChartViewer from './ChartViewer';
+import DynamicDataRenderer from './DynamicDataRenderer';
 
 const ResultsDisplay = ({ results, userQuestion }) => {
   const [expandedWarnings, setExpandedWarnings] = useState(false);
@@ -59,14 +60,30 @@ const ResultsDisplay = ({ results, userQuestion }) => {
   let anomalies = {};
   let recommendedMetrics = {};
   
+  // Helper function to safely get string from object
+  const getSafeString = (value, defaultValue = '') => {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number') return value.toString();
+    if (value && typeof value === 'object') {
+      if (value.answer && typeof value.answer === 'string') return value.answer;
+      if (value.human_readable_summary && typeof value.human_readable_summary === 'string') return value.human_readable_summary;
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return defaultValue;
+      }
+    }
+    return defaultValue;
+  };
+  
   if (typeof insights === 'string') {
     // If insights is a string, use it as the answer
     answerText = insights;
     summaryText = insights;
   } else if (insights && typeof insights === 'object') {
     // If insights is an object, extract its fields
-    answerText = insights.answer || insights.human_readable_summary || '';
-    summaryText = insights.human_readable_summary || insights.answer || '';
+    answerText = getSafeString(insights.answer);
+    summaryText = getSafeString(insights.human_readable_summary);
     supportingInsights = insights.supporting_insights || {};
     anomalies = insights.anomalies || {};
     recommendedMetrics = insights.recommended_metrics || {};
@@ -75,11 +92,14 @@ const ResultsDisplay = ({ results, userQuestion }) => {
   // Also check raw_insights if insights is empty
   if ((!answerText || answerText === '') && raw_insights) {
     if (typeof raw_insights === 'object') {
-      answerText = raw_insights.answer || raw_insights.human_readable_summary || '';
-      summaryText = raw_insights.human_readable_summary || raw_insights.answer || '';
-      supportingInsights = raw_insights.supporting_insights || {};
-      anomalies = raw_insights.anomalies || {};
-      recommendedMetrics = raw_insights.recommended_metrics || {};
+      answerText = getSafeString(raw_insights.answer);
+      summaryText = getSafeString(raw_insights.human_readable_summary);
+      supportingInsights = raw_insights.supporting_insights || supportingInsights;
+      anomalies = raw_insights.anomalies || anomalies;
+      recommendedMetrics = raw_insights.recommended_metrics || recommendedMetrics;
+    } else if (typeof raw_insights === 'string') {
+      answerText = raw_insights;
+      summaryText = raw_insights;
     }
   }
 
@@ -274,7 +294,7 @@ const ResultsDisplay = ({ results, userQuestion }) => {
               {isOverview ? 'Executive Summary' : 'Direct Answer'}
             </Typography>
           </Box>
-          <Typography variant="body1">
+          <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
             {answerText}
           </Typography>
         </Box>
@@ -294,65 +314,42 @@ const ResultsDisplay = ({ results, userQuestion }) => {
             <TipsAndUpdatesIcon sx={{ mr: 1 }} />
             📋 Detailed Analysis
           </Typography>
-          <Typography variant="body1">
+          <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
             {summaryText}
           </Typography>
         </Box>
       )}
 
-      {/* Supporting Insights */}
+      {/* Supporting Insights - Using Dynamic Renderer */}
       {Object.keys(supportingInsights).length > 0 && (
         <Box sx={{ mt: 3 }}>
           <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
             <AnalyticsIcon sx={{ mr: 1, color: '#1976d2' }} />
             Supporting Insights
           </Typography>
-          <Paper variant="outlined" sx={{ p: 2, bgcolor: '#fafafa' }}>
-            <pre style={{ margin: 0, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-              {JSON.stringify(supportingInsights, null, 2)}
-            </pre>
-          </Paper>
+          {DynamicDataRenderer.render(supportingInsights, "Key Metrics")}
         </Box>
       )}
 
-      {/* Anomalies */}
+      {/* Anomalies - Using Dynamic Renderer */}
       {Object.keys(anomalies).length > 0 && (
         <Box sx={{ mt: 3 }}>
           <Typography variant="h6" gutterBottom sx={{ color: '#d32f2f', display: 'flex', alignItems: 'center' }}>
             <ReportProblemIcon sx={{ mr: 1 }} />
             ⚠️ Anomalies Detected
           </Typography>
-          <Paper variant="outlined" sx={{ p: 2, bgcolor: '#fff4f4' }}>
-            <pre style={{ margin: 0, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-              {JSON.stringify(anomalies, null, 2)}
-            </pre>
-          </Paper>
+          {DynamicDataRenderer.render(anomalies, "Detected Anomalies")}
         </Box>
       )}
 
-      {/* Recommended Metrics */}
+      {/* Recommended Metrics - Using Dynamic Renderer */}
       {Object.keys(recommendedMetrics).length > 0 && (
         <Box sx={{ mt: 3 }}>
           <Typography variant="h6" gutterBottom sx={{ color: '#2e7d32', display: 'flex', alignItems: 'center' }}>
             <TipsAndUpdatesIcon sx={{ mr: 1 }} />
             📊 Recommended Next Steps
           </Typography>
-          <Grid container spacing={2}>
-            {Object.entries(recommendedMetrics).map(([key, value]) => (
-              <Grid item xs={12} md={6} key={key}>
-                <Card variant="outlined" sx={{ height: '100%' }}>
-                  <CardContent>
-                    <Typography variant="subtitle2" color="textSecondary" gutterBottom>
-                      {key.replace(/_/g, ' ').toUpperCase()}
-                    </Typography>
-                    <Typography variant="body2">
-                      {value}
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
+          {DynamicDataRenderer.render(recommendedMetrics, "Recommendations")}
         </Box>
       )}
 

@@ -137,3 +137,78 @@ class VisualizationAgent:
                 print(f"Visualization failed for {tool_name}: {e}")
 
         return charts
+    
+    def plot_product_forecast(self, forecasts, period_label="Next Quarter"):
+        """
+        Plot product-level forecasts as a grouped bar chart with dynamic period label
+        
+        Args:
+            forecasts: Dictionary from forecast_revenue_by_product
+            period_label: The period being forecasted (e.g., "Q1 2025", "Next Quarter")
+        """
+        try:
+            # Check if forecasts is a dictionary with 'forecasts' key
+            if isinstance(forecasts, dict) and 'forecasts' in forecasts:
+                forecast_data = forecasts.get("forecasts", {})
+                period_label = forecasts.get("period", period_label)
+            else:
+                forecast_data = forecasts
+            
+            # Prepare data for plotting
+            products = []
+            forecast_values = []
+            
+            for product, data in forecast_data.items():
+                if isinstance(data, dict):
+                    forecast_sum = data.get("forecast_sum")
+                    if forecast_sum is not None and forecast_sum > 0:
+                        # Clean product name
+                        product_name = product.replace('_', ' ').replace('Plan', ' Plan')
+                        products.append(product_name)
+                        forecast_values.append(forecast_sum)
+            
+            if not products:
+                print("⚠️ No forecast data to plot")
+                return None
+            
+            # Sort by forecast value descending
+            sorted_data = sorted(zip(products, forecast_values), key=lambda x: x[1], reverse=True)
+            products = [x[0] for x in sorted_data]
+            forecast_values = [x[1] for x in sorted_data]
+            
+            plt.figure(figsize=(12, 6))
+            bars = plt.bar(products, forecast_values, color=['#4caf50', '#2196f3', '#ff9800', '#9c27b0', '#f44336'])
+            
+            # Add value labels on bars
+            for bar, value in zip(bars, forecast_values):
+                plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 500,
+                        f'${value:,.0f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
+            
+            # Format the period label for title
+            title_text = f"Forecasted Revenue by Product - {period_label}"
+            plt.title(title_text, fontsize=14, fontweight='bold')
+            plt.ylabel("Forecasted Revenue ($)", fontsize=12)
+            plt.xlabel("Product", fontsize=12)
+            plt.xticks(rotation=45, ha='right', fontsize=10)
+            plt.grid(axis='y', alpha=0.3)
+            
+            # Add note about forecast period
+            plt.figtext(0.99, 0.01, f"Forecast period: {period_label}", 
+                        ha='right', va='bottom', fontsize=9, style='italic', alpha=0.7)
+            
+            plt.tight_layout()
+            
+            # Create filename with period label
+            safe_period = period_label.replace(' ', '_').replace('/', '_').replace('?', '')
+            filepath = os.path.join(self.output_dir, f"product_forecast_{safe_period}.png")
+            plt.savefig(filepath, dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            print(f"✅ Saved product forecast chart: {filepath}")
+            return filepath
+            
+        except Exception as e:
+            print(f"❌ Error plotting product forecast: {e}")
+            import traceback
+            traceback.print_exc()
+            return None

@@ -20,7 +20,9 @@ import {
   Badge
 } from '@mui/material';
 import FileUpload from './components/FileUpload';
-import DatabaseConnectionForm from './components/DatabaseConnectionForm';
+// Keep the import but we'll use SimpleDatabaseConnection instead
+// import DatabaseConnectionForm from './components/DatabaseConnectionForm';
+import SimpleDatabaseConnection from './components/SimpleDatabaseConnection';
 import GoogleSheetsConnectionForm from './components/GoogleSheetsConnectionForm';
 import QuestionInput from './components/QuestionInput';
 import DataPreview from './components/DataPreview';
@@ -208,6 +210,7 @@ function DashboardContent() {
     setDataSourceReady(false);
   };
 
+  // handleQuestionSubmit function
   const handleQuestionSubmit = async (question) => {
     setLoading(true);
     setError(null);
@@ -217,22 +220,61 @@ function DashboardContent() {
       let response;
       
       if (tabValue === 0) {
+        // File upload (CSV, Excel, or SQLite file)
         if (!selectedFile) throw new Error('Please select a file first');
         response = await uploadFile(selectedFile, question);
         setPreview(response.preview);
         setResults(response.analysis_results);
+        
       } else if (tabValue === 1) {
+        // Database connection
         if (!dbConfig) throw new Error('Please configure database connection first');
-        response = await analyzeDatabase(question, dbConfig);
-        setPreview(response.preview);
-        setResults(response.analysis_results);
-      } else {
+        
+        // Check if this is a SQLite connection (file upload via database form)
+        if (dbConfig.db_type === 'sqlite' && dbConfig.sqlite_file) {
+          console.log("📤 SQLite file upload detected, using upload-sqlite endpoint");
+          
+          // Use the file upload approach for SQLite
+          const formData = new FormData();
+          formData.append('file', dbConfig.sqlite_file);
+          formData.append('question', question);
+          formData.append('table', dbConfig.selected_sqlite_table);
+          
+          const token = localStorage.getItem('token');
+          const apiResponse = await fetch('http://localhost:8000/api/v1/analysis/upload-sqlite', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`
+            },
+            body: formData
+          });
+          
+          if (!apiResponse.ok) {
+            const errorData = await apiResponse.json();
+            throw new Error(errorData.detail || 'SQLite analysis failed');
+          }
+          
+          response = await apiResponse.json();
+          setPreview(response.preview);
+          setResults(response.analysis_results);
+        } else {
+          // Regular PostgreSQL/MySQL database connection
+          console.log("💾 Regular database connection");
+          response = await analyzeDatabase(question, dbConfig);
+          setPreview(response.preview);
+          setResults(response.analysis_results);
+        }
+        
+      } else if (tabValue === 2) {
+        // Google Sheets
         if (!sheetsConfig) throw new Error('Please configure Google Sheets connection first');
         response = await analyzeGoogleSheets(question, sheetsConfig);
         setPreview(response.preview);
         setResults(response.analysis_results);
       }
+      
     } catch (err) {
+      console.error('Analysis error:', err);
       setError(err.response?.data?.detail || err.message || 'Analysis failed');
       setOpenSnackbar(true);
       setDataSourceReady(false);
@@ -308,11 +350,9 @@ function DashboardContent() {
           {tabValue === 0 ? (
             <FileUpload onFileSelect={handleFileSelect} onClearResults={handleClearResults} />
           ) : tabValue === 1 ? (
-            <DatabaseConnectionForm 
+            <SimpleDatabaseConnection 
               onConnect={handleDatabaseConnect}
-              onTestConnection={handleTestDatabaseConnection}
               onClearResults={handleClearResults}
-              loading={loading}
             />
           ) : (
             <GoogleSheetsConnectionForm

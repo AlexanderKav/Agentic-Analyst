@@ -36,9 +36,9 @@ class DatabaseConnectionRequest(BaseModel):
 class DatabaseTestRequest(BaseModel):
     """Request model for testing database connection"""
     db_type: str
-    host: Optional[str] = None
+    host: Optional[str] = "localhost"  # Default to localhost
     port: Optional[str] = None
-    database: str
+    database: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
     table: Optional[str] = None
@@ -50,6 +50,14 @@ class DatabaseTestRequest(BaseModel):
         allowed = ['postgresql', 'mysql', 'sqlite']
         if v not in allowed:
             raise ValueError(f"Database type must be one of: {allowed}")
+        return v
+    
+    @validator('host')
+    def validate_host(cls, v):
+        if v:
+            # Allow localhost, IP addresses, and hostnames
+            if not re.match(r'^[a-zA-Z0-9\.\-_]+$', v):
+                raise ValueError("Invalid host format. Use only letters, numbers, dots, hyphens, and underscores.")
         return v
     
     @validator('port')
@@ -68,20 +76,17 @@ class DatabaseTestRequest(BaseModel):
         """Validate database name/path based on db_type"""
         db_type = values.get('db_type')
         
+        if v is None:
+            raise ValueError("Database name is required")
+            
         if db_type == 'sqlite':
             # SQLite accepts full file paths
-            # Remove any surrounding quotes that might be present
             v = v.strip('"\'')
             
-            # Allow Windows and Unix paths
             if not re.match(r'^[a-zA-Z0-9_\ \-\.\\/:]+$', v):
-                raise ValueError("Invalid database file path. Use only letters, numbers, spaces, and path characters (:, \\, /, ., -, _)")
-            
-            # Ensure it ends with .db
-            if not v.endswith('.db'):
-                raise ValueError("SQLite database file must end with .db extension")
+                raise ValueError("Invalid database file path. Use only letters, numbers, spaces, and path characters.")
         else:
-            # PostgreSQL/MySQL database names are more restrictive
+            # PostgreSQL/MySQL database names
             if not re.match(r'^[a-zA-Z0-9_\-]+$', v):
                 raise ValueError("Database name contains invalid characters. Use only letters, numbers, underscores, and hyphens.")
         
@@ -90,9 +95,7 @@ class DatabaseTestRequest(BaseModel):
     @validator('table')
     def validate_table(cls, v):
         if v:
-            # Strip whitespace first
             v = v.strip()
-            # Then validate
             if not re.match(r'^[a-zA-Z0-9_]+$', v):
                 raise ValueError("Invalid table name. Use only letters, numbers, and underscores")
         return v

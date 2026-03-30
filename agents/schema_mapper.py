@@ -9,8 +9,8 @@ import re
 class SchemaMapper:
 
     STANDARD_SCHEMA = {
-        "date": ["date", "day", "transaction_date"],
-        "customer": ["customer", "client", "account"],
+        "date": ["date", "day", "transaction_date", "sale_date", "created_at"],
+        "customer": ["customer", "client", "account", "id"],
         "product": ["product", "plan", "item"],
         "region": ["region", "market", "geo"],
         "revenue": ["revenue", "rev", "sales"],

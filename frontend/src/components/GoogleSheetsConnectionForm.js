@@ -10,17 +10,23 @@ import {
   CircularProgress,
   Link,
   InputAdornment,
+  Divider
 } from '@mui/material';
 import {
   Google as GoogleIcon,
   Refresh as RefreshIcon,
   Help as HelpIcon,
   CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon
+  Error as ErrorIcon,
+  Info as InfoIcon,
+  Warning as WarningIcon
 } from '@mui/icons-material';
 
 const API_BASE_URL = 'http://localhost:8000/api/v1';
 const MAX_SHEET_SIZE = 100000;
+
+// Service account email - update this with your actual service account email
+const SERVICE_ACCOUNT_EMAIL = 'agentic-analyst-bot@agentic-analyst-489012.iam.gserviceaccount.com';
 
 const GoogleSheetsConnectionForm = ({ onConnect, onTestConnection, onClearResults, loading }) => {
   const [config, setConfig] = useState({
@@ -33,6 +39,7 @@ const GoogleSheetsConnectionForm = ({ onConnect, onTestConnection, onClearResult
   const [testResult, setTestResult] = useState(null);
   const [validationError, setValidationError] = useState(null);
   const [connectionSuccess, setConnectionSuccess] = useState(false);
+  const [permissionWarning, setPermissionWarning] = useState(null);
 
   const validateSheetId = (id) => {
     const regex = /^[a-zA-Z0-9-_]+$/;
@@ -43,6 +50,7 @@ const GoogleSheetsConnectionForm = ({ onConnect, onTestConnection, onClearResult
     const value = event.target.value;
     setConfig({ ...config, [field]: value });
     setValidationError(null);
+    setPermissionWarning(null);
     if (connectionSuccess) {
       setConnectionSuccess(false);
       setTestResult(null);
@@ -64,6 +72,7 @@ const GoogleSheetsConnectionForm = ({ onConnect, onTestConnection, onClearResult
     setTesting(true);
     setTestResult(null);
     setValidationError(null);
+    setPermissionWarning(null);
     
     try {
       const result = await onTestConnection({ 
@@ -73,10 +82,18 @@ const GoogleSheetsConnectionForm = ({ onConnect, onTestConnection, onClearResult
       
       if (result && result.success) {
         let successMessage = '✅ Successfully connected!';
+        let warning = null;
+        
         if (result.data?.message) {
           successMessage = result.data.message;
         } else if (result.data?.rows) {
           successMessage = `✅ Connected! Found ${result.data.rows} rows.`;
+        }
+        
+        // Check for permission warning
+        if (result.data?.warning) {
+          warning = result.data.warning;
+          setPermissionWarning(warning);
         }
         
         setTestResult({ 
@@ -115,7 +132,7 @@ const GoogleSheetsConnectionForm = ({ onConnect, onTestConnection, onClearResult
         if (errorMessage.includes('404')) {
           errorMessage = '❌ Sheet not found. Check the Sheet ID and sharing settings.';
         } else if (errorMessage.includes('403')) {
-          errorMessage = '❌ Permission denied. Make sure the sheet is shared with your service account.';
+          errorMessage = '❌ Permission denied. Make sure the sheet is shared with the service account email below.';
         } else if (errorMessage.includes('date')) {
           errorMessage = '❌ Schema validation failed: Date column contains invalid formats.';
         } else if (errorMessage.includes('revenue')) {
@@ -143,6 +160,7 @@ const GoogleSheetsConnectionForm = ({ onConnect, onTestConnection, onClearResult
     setConnectionSuccess(false);
     setTestResult(null);
     setValidationError(null);
+    setPermissionWarning(null);
     setConfig({ 
       sheet_id: '', 
       sheet_range: 'A1:Z1000',
@@ -178,6 +196,34 @@ const GoogleSheetsConnectionForm = ({ onConnect, onTestConnection, onClearResult
           Max rows: {MAX_SHEET_SIZE.toLocaleString()}
         </Typography>
       </Box>
+
+      {/* CRITICAL INSTRUCTION BOX - Service Account Sharing */}
+      <Alert 
+        severity="info" 
+        icon={<InfoIcon />}
+        sx={{ mb: 3, bgcolor: '#e3f2fd' }}
+      >
+        <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
+          🔐 Before connecting, share your Google Sheet with:
+        </Typography>
+        <Typography 
+          variant="body2" 
+          sx={{ 
+            fontFamily: 'monospace', 
+            bgcolor: '#fff', 
+            p: 1, 
+            borderRadius: 1,
+            display: 'inline-block',
+            mb: 1
+          }}
+        >
+          {SERVICE_ACCOUNT_EMAIL}
+        </Typography>
+        <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
+          Make sure to give this email address <strong>"Viewer" or "Reader"</strong> access to your Google Sheet.
+          You can share it like you would share with any other email address.
+        </Typography>
+      </Alert>
 
       <Grid container spacing={2}>
         {/* Sheet ID Input */}
@@ -241,6 +287,19 @@ const GoogleSheetsConnectionForm = ({ onConnect, onTestConnection, onClearResult
           </Grid>
         )}
 
+        {/* Permission Warning Alert */}
+        {permissionWarning && connectionSuccess && (
+          <Grid item xs={12}>
+            <Alert 
+              severity="warning" 
+              icon={<WarningIcon />}
+              onClose={() => setPermissionWarning(null)}
+            >
+              {permissionWarning}
+            </Alert>
+          </Grid>
+        )}
+
         {/* Test Connection Button */}
         {!connectionSuccess && (
           <Grid item xs={12}>
@@ -289,7 +348,7 @@ const GoogleSheetsConnectionForm = ({ onConnect, onTestConnection, onClearResult
               </Typography>
               <Typography variant="body2" component="div">
                 <ul style={{ margin: 0, paddingLeft: 20 }}>
-                  <li>Sheet must be shared with your service account</li>
+                  <li>Sheet must be shared with <strong>{SERVICE_ACCOUNT_EMAIL}</strong> as a viewer</li>
                   <li>Maximum {MAX_SHEET_SIZE.toLocaleString()} rows will be processed</li>
                   <li>First row must contain column headers</li>
                   <li><strong>Required columns:</strong> date and revenue (case-insensitive)</li>

@@ -83,3 +83,8 @@ argon2-cffi==23.1.0
 passlib[argon2]==1.7.4
 
 python-magic==0.4.27
+
+# MySQL driver
+pymysql==1.1.0
+
+mysql-connector-python==9.6.0

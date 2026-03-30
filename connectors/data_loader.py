@@ -5,14 +5,15 @@ import pandas as pd
 from .csv_sheets import CSVConnector
 from .google_sheets import GoogleSheetsConnector
 from .database_connector import DatabaseConnector
+from .excel_connector import ExcelConnector
 
 class DataLoader:
-    """Unified data loader for CSV, Google Sheets, and Databases"""
+    """Unified data loader for CSV, Excel, Google Sheets, and Databases"""
     
     def __init__(self):
         self.sources = {
             'csv': self._load_csv,
-            'excel': self._load_excel,  # Add this line
+            'excel': self._load_excel,
             'google_sheets': self._load_sheets,
             'database': self._load_database
         }
@@ -20,7 +21,7 @@ class DataLoader:
     def load(self, source_type, source_config):
         """Load data from specified source"""
         if source_type not in self.sources:
-            raise ValueError(f"Unknown source type: {source_type}. Use: csv, google_sheets, or database")
+            raise ValueError(f"Unknown source type: {source_type}. Use: csv, excel, google_sheets, or database")
         
         loader = self.sources[source_type]
         print(f"Loading data from {source_type}...")
@@ -34,21 +35,26 @@ class DataLoader:
         else:
             # Dict with options
             path = config.get('path')
-            connector = CSVConnector(path)
+            if not path:
+                raise ValueError("CSV config must include 'path'")
+            delimiter = config.get('delimiter', ',')
+            encoding = config.get('encoding', 'utf-8')
+            connector = CSVConnector(path, delimiter=delimiter, encoding=encoding)
         return connector.fetch_data()
     
     def _load_excel(self, config):
         """Load from Excel file"""
         if isinstance(config, str):
             # Simple string path
-            from .excel_connector import ExcelConnector  # You'll need this
             connector = ExcelConnector(config)
         else:
             # Dict with options
             path = config.get('path')
-            sheet_name = config.get('sheet_name', 0)  # First sheet by default
-            from .excel_connector import ExcelConnector
-            connector = ExcelConnector(path, sheet_name=sheet_name)
+            if not path:
+                raise ValueError("Excel config must include 'path'")
+            sheet_name = config.get('sheet_name', 0)
+            header = config.get('header', 0)
+            connector = ExcelConnector(path, sheet_name=sheet_name, header=header)
         return connector.fetch_data()
         
     def _load_sheets(self, config):
@@ -59,6 +65,8 @@ class DataLoader:
         else:
             # Dict with options
             sheet_id = config.get('sheet_id')
+            if not sheet_id:
+                raise ValueError("Google Sheets config must include 'sheet_id'")
             sheet_range = config.get('range', 'A1:Z1000')
             connector = GoogleSheetsConnector(sheet_id, sheet_range)
         return connector.fetch_sheet()
@@ -68,10 +76,12 @@ class DataLoader:
         # config can be connection string or dict with options
         if isinstance(config, str):
             connector = DatabaseConnector(config)
-            # Default to fetching all tables? Need query or table name
             raise ValueError("For database, please provide a dict with 'table' or 'query'")
         else:
             connection = config.get('connection_string')
+            if not connection:
+                raise ValueError("Database config must include 'connection_string'")
+            
             query = config.get('query')
             table = config.get('table')
             
@@ -91,6 +101,13 @@ class DataLoader:
         if source_type == 'csv':
             path = os.getenv('CSV_PATH', 'data.csv')
             return self.load('csv', path)
+        
+        elif source_type == 'excel':
+            path = os.getenv('EXCEL_PATH')
+            if not path:
+                raise ValueError("EXCEL_PATH environment variable not set")
+            sheet_name = os.getenv('EXCEL_SHEET', 0)
+            return self.load('excel', {'path': path, 'sheet_name': sheet_name})
         
         elif source_type == 'google_sheets':
             sheet_id = os.getenv('SHEET_ID')
@@ -121,9 +138,13 @@ class DataLoader:
 
 
 # Convenience functions for common use cases
-def load_csv(path):
+def load_csv(path, delimiter=',', encoding='utf-8'):
     """Quick load CSV"""
-    return DataLoader().load('csv', path)
+    return DataLoader().load('csv', {'path': path, 'delimiter': delimiter, 'encoding': encoding})
+
+def load_excel(path, sheet_name=0):
+    """Quick load Excel"""
+    return DataLoader().load('excel', {'path': path, 'sheet_name': sheet_name})
 
 def load_database(conn_string, table=None, query=None):
     """Quick load database"""
@@ -134,6 +155,6 @@ def load_database(conn_string, table=None, query=None):
         config['query'] = query
     return DataLoader().load('database', config)
 
-def load_sheets(sheet_id):
+def load_sheets(sheet_id, sheet_range='A1:Z1000'):
     """Quick load Google Sheets"""
-    return DataLoader().load('google_sheets', sheet_id)
+    return DataLoader().load('google_sheets', {'sheet_id': sheet_id, 'range': sheet_range})

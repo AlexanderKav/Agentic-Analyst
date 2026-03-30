@@ -6,7 +6,6 @@ services:
     container_name: agentic-analyst-app
     ports:
       - "8000:8000"
-    # Remove env_file - we'll use environment section with variable substitution
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/agentic_analyst
       - SECRET_KEY=${SECRET_KEY}
@@ -14,6 +13,8 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      # Set to the path INSIDE the container where credentials will be mounted
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/google-credentials.json
     depends_on:
       db:
         condition: service_healthy
@@ -21,9 +22,13 @@ services:
       - ../logs:/app/logs
       - ../agents/charts:/app/agents/charts
       - ../data:/app/data
+      # Mount your credentials file from Windows to container
+      - C:/Users/alexk/Desktop/agentic-analyst/agentic-analyst-489012-a0aa86d33643.json:/app/credentials/google-credentials.json
     networks:
       - agentic-network
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   db:
     image: postgres:15-alpine

@@ -28,51 +28,105 @@ class AnalysisOrchestrator:
     def _is_question_relevant(self, question: str, df: pd.DataFrame) -> tuple[bool, str]:
         """Check if question is relevant to the data"""
         
+        if not question or not question.strip():
+            return True, "No question provided (using default overview)"
+        
         # Get data context
         data_columns = set(df.columns)
-        data_context = {
-            'columns': list(data_columns),
-            'has_date': 'date' in data_columns,
-            'has_revenue': 'revenue' in data_columns,
-            'has_customer': 'customer' in data_columns,
-            'has_product': 'product' in data_columns,
-        }
+        question_lower = question.lower()
         
         # Define relevant keywords based on data
         relevant_keywords = set()
-        if data_context['has_revenue']:
+        
+        if 'revenue' in data_columns:
             relevant_keywords.update(['revenue', 'sales', 'income', 'profit', 'money', 'earnings'])
-        if data_context['has_customer']:
+        if 'customer' in data_columns:
             relevant_keywords.update(['customer', 'client', 'buyer', 'account'])
-        if data_context['has_product']:
+        if 'product' in data_columns:
             relevant_keywords.update(['product', 'item', 'service', 'plan'])
         
-        # Also add generic business terms
+        # Generic business and performance keywords
         relevant_keywords.update([
-            'top', 'best', 'worst', 'trend', 'growth', 'decline',
-            'increase', 'decrease', 'average', 'total', 'sum',
-            'month', 'year', 'quarter', 'performance', 'kpi'
+            'top', 'best', 'worst', 'trend', 'growth', 'decline', 'increase', 'decrease',
+            'average', 'total', 'sum', 'month', 'year', 'quarter', 'performance', 'kpi',
+            'risk', 'risks', 'performing', 'performance', 'health', 'healthy', 'well',
+            'good', 'bad', 'improve', 'improving', 'declining', 'stable', 'volatile',
+            'forecast', 'predict', 'future', 'outlook', 'overview', 'summary', 'dashboard'
         ])
         
         # Check if question contains relevant keywords
-        question_lower = question.lower()
         matched_keywords = [kw for kw in relevant_keywords if kw in question_lower]
         
+        # If we have matches, it's relevant
         if matched_keywords:
+            print(f"✅ Question matched keywords: {matched_keywords[:5]}")
             return True, f"Question is relevant (matched: {', '.join(matched_keywords[:3])})"
         
-        # Also check for obviously off-topic patterns
+        # Check for business-related question patterns even without exact keyword matches
+        business_patterns = [
+            r'how\s+is\s+the\s+business',
+            r'how\s+are\s+we\s+doing',
+            r'business\s+performance',
+            r'company\s+performance',
+            r'overall\s+performance',
+            r'what\'s\s+the\s+state\s+of\s+the\s+business',
+            r'give\s+me\s+an\s+overview',
+            r'show\s+me\s+the\s+business\s+health',
+            r'is\s+the\s+business\s+doing\s+well',
+            r'are\s+there\s+any\s+risks',
+            r'what\s+are\s+the\s+risks',
+            r'business\s+risks',
+            r'what\s+should\s+we\s+be\s+concerned\s+about'
+        ]
+        
+        for pattern in business_patterns:
+            if re.search(pattern, question_lower):
+                print(f"✅ Question matched business pattern: {pattern}")
+                return True, f"Question is relevant (matched business query pattern)"
+        
+        # Check if question contains words from column names
+        column_words = set()
+        for col in data_columns:
+            # Split column names by underscores and add each part
+            for word in col.split('_'):
+                if len(word) > 2:
+                    column_words.add(word.lower())
+        
+        matched_column_words = [w for w in column_words if w in question_lower]
+        if matched_column_words:
+            print(f"✅ Question matched column words: {matched_column_words}")
+            return True, f"Question relates to data column(s): {', '.join(matched_column_words[:3])}"
+        
+        # Check for obviously off-topic patterns
         off_topic_patterns = [
-            r'\bhappiest\b', r'\bsaddest\b', r'\bweather\b', r'\bpolitics\b',
-            r'\bfamous\b', r'\bcelebrity\b', r'\bsports\b', r'\bmovie\b',
-            r'\bworld\s+record\b', r'\bwho\s+is\b', r'\bwhat\s+is\b.*\?$'
+            r'\bhappiest\b', r'\bsaddest\b', r'\bweather\b', r'\bclimate\b',
+            r'\bpolitics\b', r'\belection\b', r'\bpresident\b', r'\bprime\s+minister\b',
+            r'\bfamous\b', r'\bcelebrity\b', r'\bactor\b', r'\bactress\b',
+            r'\bsports\b', r'\bfootball\b', r'\bsoccer\b', r'\bbasketball\b',
+            r'\bmovie\b', r'\bfilm\b', r'\bmusic\b', r'\bsong\b',
+            r'\bworld\s+record\b', r'\bguinness\b',
+            r'\bwho\s+is\b', r'\bmeaning\s+of\b',
+            r'\bhistory\b', r'\binventor\b', r'\bdiscovery\b',
+            r'\brecipe\b', r'\bcooking\b', r'\bfood\b',
+            r'\btravel\b', r'\bvacation\b', r'\bholiday\b',
+            r'\bhow\s+to\s+make\b', r'\bhow\s+to\s+build\b'
         ]
         
         for pattern in off_topic_patterns:
             if re.search(pattern, question_lower):
-                return False, f"Question appears to be off-topic. This system analyzes business data from your uploaded files."
+                print(f"❌ Question matched off-topic pattern: {pattern}")
+                return False, "This question appears to be off-topic for business data analysis."
         
-        return False, "Question doesn't seem related to your business data. Try asking about revenue, customers, products, or trends."
+        # Default - if we have data columns, assume business questions are relevant
+        # This is the key change: don't reject questions about performance/risks
+        if any(keyword in question_lower for keyword in ['performance', 'risk', 'performing', 'business']):
+            print(f"✅ Question contains business/performance terms, marking as relevant")
+            return True, "Question is relevant (business performance inquiry)"
+        
+        print(f"⚠️ No clear relevance detected, but data exists. Defaulting to relevant.")
+        return True, "Question is potentially relevant to business data."
+
+        # Remove the old return False at the end - we want to be more permissive
     
     def validate_dataframe(self, df: pd.DataFrame):
         """Validate dataframe has minimum required columns and is safe"""
@@ -99,122 +153,159 @@ class AnalysisOrchestrator:
         
         return True
     
+    def _check_question_relevance(self, question: str, df: pd.DataFrame) -> tuple[bool, str]:
+        """Check if question is relevant to the business data"""
+        
+        if not question or not question.strip():
+            return True, "No question provided (using default overview)"
+        
+        # Get data columns for context
+        columns = [col.lower() for col in df.columns]
+        question_lower = question.lower()
+        
+        # Business keywords - comprehensive list including performance and risks
+        business_keywords = [
+            # Revenue/Financial
+            'revenue', 'sales', 'profit', 'income', 'earnings', 'turnover',
+            'cost', 'expense', 'margin', 'price', 'value', 'amount',
+            'total', 'sum', 'average', 'mean', 'median', 'kpi', 'metric',
+            
+            # Customer related
+            'customer', 'client', 'buyer', 'account', 'user', 'subscription',
+            'retention', 'churn', 'acquisition', 'lifetime', 'ltv',
+            
+            # Product related
+            'product', 'item', 'service', 'plan', 'sku', 'category',
+            'inventory', 'stock', 'demand', 'popular', 'best', 'top',
+            'worst', 'ranking', 'rank',
+            
+            # Trends/Time
+            'trend', 'growth', 'decline', 'increase', 'decrease', 'change',
+            'month', 'year', 'quarter', 'weekly', 'daily', 'time', 'period',
+            'seasonal', 'forecast', 'predict', 'future',
+            
+            # Regional
+            'region', 'market', 'geo', 'location', 'country', 'city',
+            'area', 'territory', 'zone',
+            
+            # Performance (CRITICAL for your question)
+            'performance', 'performing', 'efficiency', 'conversion', 'rate', 'ratio',
+            'percentage', 'share', 'market share', 'health', 'healthy',
+            
+            # Risks (CRITICAL for your question)
+            'risk', 'risks', 'danger', 'threat', 'issue', 'problem', 'concern',
+            'warning', 'alert', 'vulnerability', 'exposure',
+            
+            # Status
+            'paid', 'pending', 'overdue', 'refunded', 'status', 'payment',
+            'order', 'transaction', 'invoice', 'subscription', 'failed',
+            
+            # Business health
+            'well', 'good', 'bad', 'improve', 'improving', 'declining', 
+            'stable', 'volatile', 'outlook', 'overview', 'summary', 'dashboard'
+        ]
+        
+        # Check if any business keywords match
+        matches = [kw for kw in business_keywords if kw in question_lower]
+        
+        # Check against column names (more specific matching)
+        column_matches = []
+        for col in columns:
+            col_words = col.split('_')
+            for word in col_words:
+                if word in question_lower and len(word) > 2:
+                    column_matches.append(word)
+        column_matches = list(set(column_matches))
+        
+        # Check for column name matches (strong signal)
+        if column_matches:
+            print(f"✅ Column matches: {column_matches}")
+            return True, f"Question relates to data column(s): {', '.join(column_matches[:3])}"
+        
+        # Check for business keyword matches
+        if matches:
+            print(f"✅ Keyword matches: {matches[:5]}")
+            return True, f"Question is relevant (matched: {', '.join(matches[:3])})"
+        
+        # Check for business phrase patterns
+        business_phrases = [
+            r'how\s+is\s+the\s+business',
+            r'how\s+are\s+we\s+doing',
+            r'business\s+performance',
+            r'company\s+performance',
+            r'overall\s+performance',
+            r'what\'s\s+the\s+state\s+of\s+the\s+business',
+            r'give\s+me\s+an\s+overview',
+            r'show\s+me\s+the\s+business\s+health',
+            r'is\s+the\s+business\s+doing\s+well',
+            r'are\s+there\s+any\s+risks',
+            r'what\s+are\s+the\s+risks',
+            r'business\s+risks',
+            r'what\s+should\s+we\s+be\s+concerned\s+about',
+            r'how\s+are\s+things\s+looking',
+            r'business\s+health',
+            r'company\s+health',
+            r'performance\s+review'
+        ]
+        
+        for pattern in business_phrases:
+            if re.search(pattern, question_lower):
+                print(f"✅ Business phrase matched: {pattern}")
+                return True, "Question is relevant (business performance inquiry)"
+        
+        # Check for obvious off-topic patterns
+        off_topic_patterns = [
+            r'\bhappiest\b', r'\bsaddest\b', r'\bweather\b', r'\bclimate\b',
+            r'\bpolitics\b', r'\belection\b', r'\bpresident\b', r'\bprime\s+minister\b',
+            r'\bfamous\b', r'\bcelebrity\b', r'\bactor\b', r'\bactress\b',
+            r'\bsports\b', r'\bfootball\b', r'\bsoccer\b', r'\bbasketball\b',
+            r'\bmovie\b', r'\bfilm\b', r'\bmusic\b', r'\bsong\b',
+            r'\bworld\s+record\b', r'\bguinness\b',
+            r'\bwho\s+is\b', r'\bwhat\s+is\b.*\?$', r'\bmeaning\s+of\b',
+            r'\bhistory\b', r'\binventor\b', r'\bdiscovery\b',
+            r'\brecipe\b', r'\bcooking\b', r'\bfood\b',
+            r'\btravel\b', r'\bvacation\b', r'\bholiday\b',
+            r'\bhow\s+to\s+make\b', r'\bhow\s+to\s+build\b'
+        ]
+        
+        for pattern in off_topic_patterns:
+            if re.search(pattern, question_lower):
+                print(f"❌ Off-topic pattern matched: {pattern}")
+                return False, "This question appears to be off-topic for business data analysis."
+        
+        # If question contains business-related terms, be permissive
+        business_terms = ['business', 'company', 'performance', 'risk', 'overview', 'summary']
+        if any(term in question_lower for term in business_terms):
+            print(f"✅ Question contains business terms, marking as relevant")
+            return True, "Question is relevant (business inquiry)"
+        
+        # Default - if we have data columns and the question isn't obviously off-topic, assume it's relevant
+        if columns:
+            print(f"⚠️ No clear match but data exists. Defaulting to relevant.")
+            return True, "Question is potentially relevant to business data."
+        
+        return False, "Question doesn't seem related to your business data. Try asking about revenue, customers, products, or trends."
+    
     async def analyze_dataframe(self, df: pd.DataFrame, question: str) -> Tuple[Dict[str, Any], float]:
         """
         Analyze a pandas DataFrame directly (used by both file upload and database)
         """
         start_time = time.time()
         
-        # Helper function for relevance checking (can be moved to class method)
-        def is_question_relevant(question: str, df: pd.DataFrame) -> tuple[bool, str]:
-            """Quick check if question is relevant to business data"""
-            
-            if not question or not question.strip():
-                return True, "No question provided (using default overview)"
-            
-            # Get data columns for context
-            columns = [col.lower() for col in df.columns]
-            
-            # Business keywords - comprehensive list
-            business_keywords = [
-                # Revenue/Financial
-                'revenue', 'sales', 'profit', 'income', 'earnings', 'turnover',
-                'cost', 'expense', 'margin', 'price', 'value', 'amount',
-                'total', 'sum', 'average', 'mean', 'median', 'kpi', 'metric',
-                
-                # Customer related
-                'customer', 'client', 'buyer', 'account', 'user', 'subscription',
-                'retention', 'churn', 'acquisition', 'lifetime', 'ltv',
-                
-                # Product related
-                'product', 'item', 'service', 'plan', 'sku', 'category',
-                'inventory', 'stock', 'demand', 'popular', 'best', 'top',
-                'worst', 'ranking', 'rank',
-                
-                # Trends/Time
-                'trend', 'growth', 'decline', 'increase', 'decrease', 'change',
-                'month', 'year', 'quarter', 'weekly', 'daily', 'time', 'period',
-                'seasonal', 'forecast', 'predict', 'future',
-                
-                # Regional
-                'region', 'market', 'geo', 'location', 'country', 'city',
-                'area', 'territory', 'zone',
-                
-                # Performance
-                'performance', 'efficiency', 'conversion', 'rate', 'ratio',
-                'percentage', 'share', 'market share',
-                
-                # Status
-                'paid', 'pending', 'overdue', 'refunded', 'status', 'payment',
-                'order', 'transaction', 'invoice', 'subscription'
-            ]
-            
-            question_lower = question.lower()
-            
-            # Check if any business keywords match
-            matches = [kw for kw in business_keywords if kw in question_lower]
-            
-            # Check against column names (more specific matching)
-            column_matches = []
-            for col in columns:
-                col_words = col.split('_')
-                for word in col_words:
-                    if word in question_lower and len(word) > 2:
-                        column_matches.append(word)
-            column_matches = list(set(column_matches))
-            
-            # Check for column name matches (strong signal)
-            if column_matches:
-                return True, f"Question relates to data column(s): {', '.join(column_matches[:3])}"
-            
-            # Check for business keyword matches
-            if matches:
-                return True, f"Question is relevant (matched: {', '.join(matches[:3])})"
-            
-            # Check for obvious off-topic patterns
-            off_topic_patterns = [
-                r'\bhappiest\b', r'\bsaddest\b', r'\bweather\b', r'\bclimate\b',
-                r'\bpolitics\b', r'\belection\b', r'\bpresident\b', r'\bprime\s+minister\b',
-                r'\bfamous\b', r'\bcelebrity\b', r'\bactor\b', r'\bactress\b',
-                r'\bsports\b', r'\bfootball\b', r'\bsoccer\b', r'\bbasketball\b',
-                r'\bmovie\b', r'\bfilm\b', r'\bmusic\b', r'\bsong\b',
-                r'\bworld\s+record\b', r'\bguinness\b',
-                r'\bwho\s+is\b', r'\bwhat\s+is\b.*\?$', r'\bmeaning\s+of\b',
-                r'\bhistory\b', r'\binventor\b', r'\bdiscovery\b',
-                r'\brecipe\b', r'\bcooking\b', r'\bfood\b',
-                r'\btravel\b', r'\bvacation\b', r'\bholiday\b',
-                r'\bhow\s+to\s+make\b', r'\bhow\s+to\s+build\b'
-            ]
-            
-            for pattern in off_topic_patterns:
-                if re.search(pattern, question_lower):
-                    return False, "This question appears to be off-topic for business data analysis."
-            
-            # If we get here, the question is ambiguous
-            return False, "Question doesn't seem related to your business data. Try asking about revenue, customers, products, or trends."
-
         try:
             # 🔐 VALIDATE THE DATAFRAME FIRST
             self.validate_dataframe(df)
             
             # Check if question is relevant (if provided)
             if question and question.strip():
-                is_relevant, relevance_message = is_question_relevant(question, df)
+                # Use the class method instead of inner function
+                is_relevant, relevance_message = self._check_question_relevance(question, df)
+                print(f"🔍 Relevance check: {relevance_message}")
+                
                 if not is_relevant:
                     execution_time = time.time() - start_time
                     # Generate helpful suggestions based on data columns
                     columns = list(df.columns)
-                    column_hints = []
-                    if 'revenue' in [c.lower() for c in columns]:
-                        column_hints.append("📊 revenue")
-                    if 'customer' in [c.lower() for c in columns]:
-                        column_hints.append("👥 customer")
-                    if 'product' in [c.lower() for c in columns]:
-                        column_hints.append("🛍️ product")
-                    if 'region' in [c.lower() for c in columns]:
-                        column_hints.append("🌍 region")
-                    if 'date' in [c.lower() for c in columns]:
-                        column_hints.append("📅 date")
                     
                     suggested_questions = [
                         "What are our top products by revenue?",
@@ -260,11 +351,45 @@ class AnalysisOrchestrator:
             if not question or question.strip() == "":
                 # Generic overview
                 print("📊 Generating generic overview")
+                
+                # Compute KPIs
                 kpis = analytics.compute_kpis()
-                top_customers = analytics.revenue_by_customer().head(5).to_dict() if hasattr(analytics, 'revenue_by_customer') else {}
-                top_products = analytics.revenue_by_product().head(5).to_dict() if hasattr(analytics, 'revenue_by_product') else {}
-                monthly_trend = analytics.monthly_revenue().to_dict() if hasattr(analytics, 'monthly_revenue') else {}
-                anomalies = analytics.detect_revenue_spikes().to_dict() if hasattr(analytics, 'detect_revenue_spikes') else {}
+                
+                # Get top customers - handle dict return
+                customer_data = analytics.revenue_by_customer()
+                if isinstance(customer_data, dict):
+                    # Sort and take top 5
+                    sorted_customers = sorted(customer_data.items(), key=lambda x: x[1], reverse=True)[:5]
+                    top_customers = dict(sorted_customers)
+                else:
+                    top_customers = {}
+                
+                # Get top products - handle dict return
+                product_data = analytics.revenue_by_product()
+                if isinstance(product_data, dict):
+                    # Sort and take top 5
+                    sorted_products = sorted(product_data.items(), key=lambda x: x[1], reverse=True)[:5]
+                    top_products = dict(sorted_products)
+                else:
+                    top_products = {}
+                
+                # Get monthly trend - handle Series return
+                monthly_data = analytics.monthly_revenue()
+                if hasattr(monthly_data, 'to_dict'):
+                    monthly_trend = monthly_data.to_dict()
+                elif isinstance(monthly_data, dict):
+                    monthly_trend = monthly_data
+                else:
+                    monthly_trend = {}
+                
+                # Get anomalies - handle Series return
+                spikes_data = analytics.detect_revenue_spikes()
+                if hasattr(spikes_data, 'to_dict'):
+                    anomalies = spikes_data.to_dict()
+                elif isinstance(spikes_data, dict):
+                    anomalies = spikes_data
+                else:
+                    anomalies = {}
                 
                 overview = {
                     "answer": "Here's a comprehensive overview of your business data:",
@@ -295,6 +420,7 @@ class AnalysisOrchestrator:
                 
                 insights = overview["human_readable_summary"]
                 plan = {"plan": ["compute_kpis", "revenue_by_customer", "revenue_by_product", "monthly_revenue", "detect_revenue_spikes"]}
+                raw_insights = None
                 
             else:
                 print(f"❓ Question: {question}")
@@ -305,7 +431,7 @@ class AnalysisOrchestrator:
             return {
                 "success": True,
                 "insights": insights,
-                "raw_insights": raw_insights if 'raw_insights' in locals() else None,
+                "raw_insights": raw_insights,
                 "results": results,
                 "plan": plan,
                 "warnings": warnings,
@@ -354,7 +480,7 @@ class AnalysisOrchestrator:
                 "execution_time": execution_time,
                 "is_generic_overview": False
             }, execution_time
-    
+        
     async def analyze(
         self,
         question: str,

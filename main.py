@@ -67,16 +67,16 @@ else:
 #raw_df = connector.fetch_data()  # Note: fetch_data(), not fetch_sheet()
 '''
     # OPTION 1: CSV File
-#df = loader.load('csv', 'data.csv')
+df = loader.load('csv', 'data.csv')
     
     # OPTION 2: Excel File
 #df = loader.load('csv', 'data.xlsx')  # CSV connector handles both
     
       #OPTION 3: Google Sheets
-df = loader.load('google_sheets', {
-         'sheet_id': os.getenv('SHEET_ID'),
-         'range': 'A1:Z1000'
-     })
+#df = loader.load('google_sheets', {
+ #        'sheet_id': os.getenv('SHEET_ID'),
+  #       'range': 'A1:Z1000'
+   #  })
     
     # OPTION 4: Docker PostgreSQL Database
 #df = loader.load('database', {
@@ -116,6 +116,37 @@ viz_agent = VisualizationAgent()
 # Define Autonomous Analyst (LangGraph)
 # -------------------------
 
+#cd docker
+#docker-compose down
+#docker-compose up -d --build
+
+#docker-compose -f docker-compose-test-dbs.yml up -d
+#docker-compose -f docker-compose-test-dbs.yml down
+
+#remove obsolete Network
+#docker network prune -f
+
+#docker network connect docker_agentic-network agentic-analyst-postgres-test
+#docker network connect docker_agentic-network agentic-analyst-mysql-test
+
+#Host: agentic-analyst-mysql-test
+#Port: 3306
+#Database: sales_db
+#Username: analyst_user
+#Password: analyst_pass123
+#Table: sales
+
+#Host: agentic-analyst-postgres-test
+#Port: 5432
+#Database: sales_db
+#Username: analyst_user
+#Password: analyst_pass123
+#Table: sales
+
+#Check for errors
+#docker logs agentic-analyst-db --tail 50
+
+#docker logs agentic-analyst-app
 
 # -------------------------
 # Run the workflow
@@ -124,9 +155,11 @@ autonomous_analyst = AutonomousAnalyst(planner, analytics, insight_agent, viz_ag
 
 #question = "How is the business performing and are there any risks?"
 #question = "Show profit trends in 2024 with a chart"
-#question = "Which three products contributed the most to revenue in 2024, and how did their monthly sales trend over the year?"
-#question = "Which customers show declining revenue trends over the past 6 months?"
-question = ""
+#question = "Which product contributed the most to revenue in 2024, and how did their monthly sales trend over the year?"
+#question = "What will revenue look like in 2025?"
+#question = "What is most likely to be the most successful product for the first quarter of 2025?"
+question="Which product revenue had a decrease in sales in the first half of year?"
+#question = ""
 if question is None or question.strip() == "":
     question = "Provide a general business performance and risk overview."
 print(question)

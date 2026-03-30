@@ -23,12 +23,13 @@ const FileUpload = ({ onFileSelect, onClearResults }) => {
     formData.append('file', file);
     
     try {
-      console.log('📤 Sending file for validation:', file.name);
-      console.log('📏 File size:', file.size);
-      console.log('📁 File type:', file.type);
+      const token = localStorage.getItem('token');
       
       const response = await axios.post(`${API_BASE_URL}/analysis/validate-schema`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: { 
+          'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${token}`
+        },
       });
       
       console.log('📥 Validation response:', response.data);
@@ -45,9 +46,22 @@ const FileUpload = ({ onFileSelect, onClearResults }) => {
       }
     } catch (error) {
       console.error('❌ Validation error:', error);
-      console.error('❌ Response data:', error.response?.data);
-      console.error('❌ Response status:', error.response?.status);
-      setSchemaError(error.response?.data?.detail || 'Schema validation failed');
+      
+      let errorMessage = 'Schema validation failed';
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        if (typeof detail === 'string') {
+          errorMessage = detail;
+        } else if (Array.isArray(detail)) {
+          errorMessage = detail.map(err => err.msg || err.message).join(', ');
+        } else if (typeof detail === 'object') {
+          errorMessage = JSON.stringify(detail);
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setSchemaError(errorMessage);
       setIsValid(false);
       onFileSelect(null);
     } finally {
@@ -68,12 +82,12 @@ const FileUpload = ({ onFileSelect, onClearResults }) => {
       return false;
     }
     
-    // Check file type
+    // Check file type - removed SQLite extensions
     const fileExt = file.name.split('.').pop().toLowerCase();
     const validExtensions = ['csv', 'xlsx', 'xls'];
     
     if (!validExtensions.includes(fileExt)) {
-      setFileError(`Invalid file type. Please upload CSV or Excel files.`);
+      setFileError(`Invalid file type. Please upload CSV or Excel files only.`);
       onFileSelect(null);
       return false;
     }

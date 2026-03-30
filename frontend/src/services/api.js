@@ -135,3 +135,20 @@ export const checkChartExists = async (filename) => {
 export const getChartUrl = (filename, key = 0) => {
   return `http://localhost:8000/api/v1/analysis/chart/${encodeURIComponent(filename)}?key=${key}`;
 };
+
+
+export const uploadSQLiteFile = async (file, question, table) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('question', question);
+  formData.append('table', table);
+  
+  const token = localStorage.getItem('token');
+  const response = await axios.post('/analysis/upload-sqlite', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+      'Authorization': `Bearer ${token}`
+    },
+  });
+  return response.data;
+};
