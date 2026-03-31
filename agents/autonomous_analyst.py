@@ -6,7 +6,7 @@ from agents.monitoring import get_performance_tracker, timer, get_audit_logger, 
 from agents.self_healing import get_healing_agent
 
 class AutonomousAnalyst:
-    def __init__(self, planner, analytics, insight_agent, viz_agent):
+    def __init__(self, planner, analytics, insight_agent, viz_agent, user_id=None):
         self.planner = planner
         self.analytics = analytics
         self.insight_agent = insight_agent
@@ -532,6 +532,31 @@ class AutonomousAnalyst:
                     combined_data["negative_growth_months"] = len([v for v in growth_values if v < 0])
                     combined_data["max_growth"] = max(growth_values) if growth_values else 0
                     combined_data["min_growth"] = min(growth_values) if growth_values else 0
+                    combined_data["avg_growth"] = sum(growth_values) / len(growth_values) if growth_values else 0
+                    
+                    # Get the latest growth value (most recent month)
+                    latest_month = list(combined_data["monthly_growth"].keys())[-1] if combined_data["monthly_growth"] else None
+                    latest_growth = list(combined_data["monthly_growth"].values())[-1] if combined_data["monthly_growth"] else 0
+                    combined_data["latest_growth"] = latest_growth
+                    combined_data["latest_growth_month"] = latest_month
+                    
+                    # Calculate growth trend (improving or worsening)
+                    growth_list = list(combined_data["monthly_growth"].values())
+                    if len(growth_list) >= 3:
+                        first_third = sum(growth_list[:len(growth_list)//3]) / (len(growth_list)//3)
+                        last_third = sum(growth_list[-len(growth_list)//3:]) / (len(growth_list)//3)
+                        combined_data["growth_trend"] = "improving" if last_third > first_third else "worsening" if last_third < first_third else "stable"
+                    else:
+                        combined_data["growth_trend"] = "insufficient_data"
+                    
+                    print(f"📈 Growth metrics calculated: avg={combined_data['avg_growth']:.2%}, trend={combined_data['growth_trend']}, latest={latest_growth:.2%}")
+                else:
+                    combined_data["positive_growth_months"] = 0
+                    combined_data["negative_growth_months"] = 0
+                    combined_data["max_growth"] = 0
+                    combined_data["min_growth"] = 0
+                    combined_data["avg_growth"] = 0
+                    combined_data["growth_trend"] = "no_growth_data"
 
             # Debug print
             print("\n📊 Combined data for insight agent:")

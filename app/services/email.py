@@ -180,18 +180,35 @@ class EmailService:
         return await self._send_email(to_email, "Verify Your Email - Agentic Analyst", html)
     
     async def send_analysis_results(self, to_email: str, question: str, results: Dict[str, Any], 
-                                     charts: Optional[Dict[str, str]] = None):
+                                    charts: Optional[Dict[str, str]] = None):
         """Send analysis results via email"""
         subject = f"📊 Agentic Analyst Results: {question[:50]}..."
         
-        # Extract insights
+        # Extract insights - handle different data structures
         insights = results.get("insights", "No insights available")
         if isinstance(insights, dict):
-            insights = insights.get("answer", str(insights))
+            insights = insights.get("human_readable_summary") or insights.get("answer") or str(insights)
         
-        # Get KPIs if available
-        kpis = results.get("results", {}).get("kpis", {})
+        # Get KPIs - try multiple locations
+        kpis = {}
         
+        # Try results.results.kpis
+        if results.get("results", {}).get("kpis"):
+            kpis = results["results"]["kpis"]
+        # Try results.kpis
+        elif results.get("kpis"):
+            kpis = results["kpis"]
+        # Try direct metrics
+        else:
+            for key in ['total_revenue', 'profit_margin', 'total_profit', 'avg_order_value']:
+                if key in results:
+                    kpis[key] = results[key]
+        
+        # Get data summary
+        data_summary = results.get("data_summary", {})
+        if not data_summary and results.get("results", {}).get("data_summary"):
+            data_summary = results["results"]["data_summary"]
+
         # Create HTML content
         html = f"""
         <!DOCTYPE html>

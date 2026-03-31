@@ -1,12 +1,18 @@
 import os
 import json
 import re
+import time  # ADD THIS - was missing
 from datetime import datetime
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from agents.monitoring import get_performance_tracker, timer, get_audit_logger, get_cost_tracker
 import numpy as np
 import pandas as pd
+
+from agents.prompts import PromptRegistry
+from agents.model_router import ModelRouter
+from services.ab_testing import ABTestService
+
 
 
 def make_json_safe(obj):
@@ -203,277 +209,107 @@ def ensure_insight_format(insight_data):
 
 
 class InsightAgent:
-
-    def __init__(self):
+    def __init__(self, user_id=None, prompt_version=None):
+        self.user_id = user_id
+        self.ab_test = ABTestService()
+        self.model_router = ModelRouter()
+        
+        # Determine which prompt version to use
+        if prompt_version:
+            self.prompt_version = prompt_version
+        elif user_id:
+            # A/B test: 50% of users get v2
+            self.prompt_version = self.ab_test.get_version_for_user(
+                user_id, 'insight_prompt_v2', 
+                control='v1', treatment='v2', traffic_split=0.5
+            )
+        else:
+            # Default from current.json
+            self.prompt_version = PromptRegistry.get_current_version('insight_agent')
+        
+        # Load the prompt
+        self.prompt_data = PromptRegistry.get_prompt('insight_agent', self.prompt_version)
+        
+        # Initialize LLM with version-specific parameters
+        self._init_llm()
+        
+        print(f"🤖 InsightAgent initialized with prompt version: {self.prompt_version}")
+        print(f"   Model: {self.prompt_data['parameters']['model']}")
+        print(f"   Temperature: {self.prompt_data['parameters']['temperature']}")
+    
+    def _init_llm(self):
+        params = self.prompt_data.get('parameters', {})
         self.llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0.6,
+            model=params.get('model', 'gpt-4o-mini'),
+            temperature=params.get('temperature', 0.6),
             api_key=os.getenv("OPENAI_API_KEY")
         )
-
-        self.prompt = ChatPromptTemplate.from_template("""
-You are a senior AI business analyst specializing in data-driven insights.
-
-**USER QUESTION:** {question}
-
-**BUSINESS DATA:** {data}
-
----
-
-## YOUR ROLE
-Provide a comprehensive, data-driven analysis that directly answers the user's question. If exact data isn't available, provide the closest relevant insights with specific numbers and actionable recommendations.
-
----
-
-## RESPONSE RULES
-
-### 1. ANSWER QUALITY
-- **ALWAYS use actual numbers from the data** - never make up values
-- **If exact data isn't available**, acknowledge the limitation briefly, THEN provide the most relevant available metrics
-- **NEVER just say "I cannot answer"** without providing useful alternative insights
-- **Include specific percentages, dollar amounts, and timeframes** in your answer
-
-### 2. QUESTION TYPE HANDLING
-
-**Forecast Questions** (e.g., "What will revenue look like in 2025?")
-- Include: recent revenue trends, growth patterns, seasonal patterns, forecast methodology
-- Exclude: payment status, missing customers, operational metrics
-- State forecast period clearly (e.g., "next 3 months", "Jan-Mar 2025")
-- Explain limitations if forecasting beyond available data range
-
-**Customer Analysis Questions** (e.g., "Which customers are declining?")
-- If customer-level monthly data available: provide specific customer trends
-- If only product-level data available: provide product trends and explain how they relate to customers
-- Include: top customers by total revenue, product-level anomalies, actionable next steps
-
-**Product Analysis Questions** (e.g., "What are our top products?")
-- Aggregate revenue across ALL customers for each product
-- Show monthly trends with month names (e.g., "January: $18,986")
-- Include peak and low months with specific values
-
-**Risk Questions** (e.g., "Are there any risks?")
-- Include: failed payments, pending revenue, missing data, refunds, customer concentration
-- Quantify risks with dollar amounts and percentages
-- Provide specific recommendations to mitigate risks
-
-**Performance/Overview Questions** (e.g., "How is the business performing?")
-- Include: total revenue, profit margin, top products, top customers, regional breakdown
-- Highlight both strengths and areas of concern
-- Provide balanced assessment with specific metrics
-
-**General Questions** (e.g., "Show me revenue trends")
-- Focus on the specific metrics requested
-- Include relevant supporting data
-- Avoid adding unrelated metrics
-
-### 3. DATA FORMATTING
-- **Monthly trends**: Always specify months (e.g., "January: $18,986, February: $18,030")
-- **Percentages**: Round to 1 decimal place (e.g., "23.4% increase")
-- **Currency**: Format with $ and commas (e.g., "$18,986")
-- **Large numbers**: Use commas for readability (e.g., "221,819")
-
-### 4. CONTENT RULES
-- **Do NOT include comments** (// or #) in JSON
-- **Only include insights relevant to the question** - filter out unrelated metrics
-- **If a tool returned "insufficient_data"**, acknowledge it and suggest what data would help
-- **Be specific** - avoid vague statements like "some products are doing well"
-- **Be actionable** - provide specific recommendations when appropriate
-
----
-
-## RESPONSE FORMAT
-
-Return ONLY valid JSON in this exact structure:
-
-{{
-  "answer": "A direct, data-driven answer to the user's question. Include specific numbers and, if exact data unavailable, provide the closest relevant insights.",
-  "supporting_insights": {{
-    "key_findings": ["Specific finding with numbers (e.g., 'Enterprise Plan dropped 36% in May')", "Specific finding with numbers"],
-    "relevant_trends": ["Trend with numbers and timeframe", "Trend with numbers and timeframe"],
-    "additional_context": "Optional: Additional context that supports the answer"
-  }},
-  "anomalies": {{
-    "identified": ["Anomaly with specific numbers and impact (e.g., 'Enterprise Plan: May revenue $11,898 vs $18,485 average')"],
-    "severity": "Brief assessment of anomaly significance (optional)"
-  }},
-  "recommended_metrics": {{
-    "next_steps": ["Actionable recommendation 1", "Actionable recommendation 2"],
-    "data_needed": "If applicable: What additional data would enable better analysis"
-  }},
-  "human_readable_summary": "A concise 1-2 sentence summary of the most important insight for the user"
-}}
-
----
-
-## EXAMPLES
-
-### Example 1: Customer Question with Product Data Only
-**Question:** "Which customers show declining revenue?"
-**Good Response:**
-{{
-  "answer": "Customer-level monthly data isn't available, but product analysis shows the Enterprise Plan dropped 36% in May ($11,898 vs $18,485 average), suggesting potential issues with Enterprise customers. Top customers by total revenue: Acme Corp ($50,000+), BetaCo ($40,000+).",
-  "supporting_insights": {{
-    "key_findings": [
-      "Enterprise Plan: 36% decline in May ($11,898 vs $18,485 average)",
-      "Premium Plan: 23% spike in December ($6,917 vs $5,627 average)",
-      "Enterprise Plan accounts for 69% of total revenue"
-    ],
-    "relevant_trends": [
-      "Enterprise Plan revenue volatile, May lowest month",
-      "Premium Plan shows consistent growth"
-    ]
-  }},
-  "anomalies": {{
-    "identified": [
-      "Enterprise Plan: May revenue $11,898 (36% below $18,485 average)",
-      "Premium Plan: December revenue $6,917 (23% above $5,627 average)"
-    ]
-  }},
-  "recommended_metrics": {{
-    "next_steps": [
-      "Investigate Enterprise customers active in May",
-      "Add transaction dates to enable customer-level trend analysis",
-      "Analyze what drove Premium Plan December spike"
-    ],
-    "data_needed": "Customer-month revenue data would enable precise customer decline analysis"
-  }},
-  "human_readable_summary": "Enterprise Plan revenue dropped 36% in May, suggesting potential issues with Enterprise customers. Top customers are Acme Corp and BetaCo."
-}}
-
-### Example 2: Forecast Question
-**Question:** "What will revenue look like in 2025?"
-**Good Response:**
-{{
-  "answer": "Based on 12 months of data, revenue shows volatile growth with May decline (-27%) and December growth (+11%). Without seasonal patterns, a precise 2025 forecast requires more historical data. Current trend suggests potential growth if December patterns continue.",
-  "supporting_insights": {{
-    "key_findings": [
-      "Revenue: $319,925 total, average $26,660/month",
-      "Growth: 4 months positive, 8 months negative",
-      "Best month: December (+11% growth)",
-      "Worst month: May (-27% decline)"
-    ],
-    "trends": [
-      "Negative growth months: Feb, Apr, May, Jul, Sep, Nov",
-      "Positive growth months: Mar, Jun, Aug, Oct, Dec"
-    ]
-  }},
-  "anomalies": {{
-    "identified": [
-      "May: -27% growth (significant decline)",
-      "December: +11% growth (strong recovery)"
-    ]
-  }},
-  "recommended_metrics": {{
-    "next_steps": [
-      "Collect 24+ months data for seasonal forecasting",
-      "Analyze factors driving May decline",
-      "Monitor if December growth trend continues"
-    ],
-    "data_needed": "2+ years of monthly data for reliable forecasting"
-  }},
-  "human_readable_summary": "Revenue shows volatile growth with a concerning May decline (-27%) and strong December recovery (+11%). More historical data needed for accurate 2025 forecast."
-}}
-
-### Example 3: Performance Overview
-**Question:** "How is the business performing?"
-**Good Response:**
-{{
-  "answer": "Your business generated $319,925 in revenue with a 49% profit margin ($158,539 profit). Enterprise Plan leads with 69% of revenue, followed by Premium Plan (21%) and Basic Plan (10%). Top customers: Acme Corp ($50,000+), BetaCo ($40,000+).",
-  "supporting_insights": {{
-    "key_findings": [
-      "Total revenue: $319,925",
-      "Profit margin: 49% ($158,539 profit)",
-      "Enterprise Plan: 69% of revenue ($221,819)",
-      "Top 2 customers account for 28% of revenue"
-    ],
-    "trends": [
-      "Revenue volatile: May decline (-27%), December growth (+11%)",
-      "Enterprise Plan May dip ($11,898 vs $18,485 avg)"
-    ]
-  }},
-  "anomalies": {{
-    "identified": [
-      "Enterprise Plan: May revenue $11,898 (36% below average)",
-      "Premium Plan: December spike $6,917 (23% above average)"
-    ]
-  }},
-  "recommended_metrics": {{
-    "next_steps": [
-      "Investigate May decline in Enterprise Plan",
-      "Analyze December Premium Plan spike for repeatable strategies",
-      "Reduce customer concentration risk"
-    ]
-  }},
-  "human_readable_summary": "Strong overall performance ($319,925 revenue, 49% margin) but Enterprise Plan shows concerning May decline (-36%) and customer concentration poses risk."
-}}
-
----
-
-Return ONLY valid JSON, no explanations outside the JSON structure.
-""")
+        self.prompt_template = ChatPromptTemplate.from_template(
+            self.prompt_data['template']
+        )
     
     @timer(operation='generate_insights')
     def generate_insights(self, data, question="General business insights"):
+        """Generate insights with version tracking"""
+        start_time = time.time()  # ADD THIS - was missing
+        
         try:
-            # Convert tool results to JSON-safe dict
+            # Record which version was used
+            print(f"📊 Using prompt version: {self.prompt_version}")
+            
+            # Prepare data
             if hasattr(data, "to_dict"):
                 data_dict = data.to_dict(orient="records")
             else:
                 data_dict = make_json_safe(data)
-
-            data_dict = make_json_safe(data_dict)
             
             # Check if there's a skipped tools note
-            skipped_note = data_dict.pop("_skipped_tools_note", None)
-            if skipped_note:
-                # Add a note to the data that the AI can see
-                data_dict["_note"] = skipped_note["message"]
-                print(f"📝 Adding note for insight agent: {skipped_note['message']}")
+            if isinstance(data_dict, dict):
+                skipped_note = data_dict.pop("_skipped_tools_note", None)
+                if skipped_note:
+                    data_dict["_note"] = skipped_note["message"]
+                    print(f"📝 Adding note for insight agent: {skipped_note['message']}")
             
             data_json = json.dumps(data_dict, indent=2, default=str)
-
-            messages = self.prompt.format_messages(data=data_json, question=question)
+            
+            # Generate response
+            messages = self.prompt_template.format_messages(data=data_json, question=question)
             response = self.llm.invoke(messages)
             raw = response.content
-
+            
             print("\n" + "="*60)
             print("RAW INSIGHT RESPONSE:")
             print("="*60)
             print(raw)
             print("="*60 + "\n")
-
-            # Extract JSON safely
+            
+            # Parse JSON
             parsed_json = extract_json_from_text(raw)
             
-            # === CRITICAL: Sanitize the output to ensure strings ===
+            # Sanitize the output
             sanitized_insights = ensure_insight_format(parsed_json)
             
-            # Check if the parsed JSON itself contains a nested JSON string
-            if parsed_json and 'answer' in parsed_json:
-                answer = parsed_json['answer']
-                if isinstance(answer, str) and answer.strip().startswith('{'):
-                    try:
-                        nested = json.loads(answer)
-                        if isinstance(nested, dict) and 'answer' in nested:
-                            sanitized_insights = ensure_insight_format(nested)
-                    except:
-                        pass
-            
-            # If parsing failed but we have raw text, create a simple response
-            if not parsed_json and raw:
-                sanitized_insights = ensure_insight_format({
-                    "answer": raw[:500] if isinstance(raw, str) else str(raw)[:500],
-                    "human_readable_summary": raw[:200] if isinstance(raw, str) else str(raw)[:200]
-                })
-            
-            print(f"✅ Final answer type: {type(sanitized_insights.get('answer', ''))}")
-            print(f"✅ Answer preview: {str(sanitized_insights.get('answer', ''))[:150]}...")
-            print(f"✅ Summary type: {type(sanitized_insights.get('human_readable_summary', ''))}")
+            # Record metrics for A/B testing
+            if self.user_id:
+                self.ab_test.record_metric(
+                    self.user_id, 
+                    'insight_prompt_v2', 
+                    self.prompt_version,
+                    'answer_length', 
+                    len(sanitized_insights.get('answer', ''))
+                )
+                self.ab_test.record_metric(
+                    self.user_id,
+                    'insight_prompt_v2', 
+                    self.prompt_version,
+                    'latency',
+                    time.time() - start_time
+                )
             
             return raw, sanitized_insights
-
+            
         except Exception as e:
-            print("❌ Error in InsightAgent.generate_insights:", e)
+            print(f"❌ Error in InsightAgent.generate_insights: {e}")
             import traceback
             traceback.print_exc()
             

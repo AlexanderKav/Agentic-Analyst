@@ -17,12 +17,11 @@ MINIMUM_REQUIRED_COLUMNS = ['date', 'revenue']
 MAX_STRING_LENGTH = 10000
 
 class AnalysisOrchestrator:
-    """Orchestrates the entire analysis pipeline"""
-    
-    def __init__(self, data_loader: Optional[DataLoader] = None):
+    def __init__(self, data_loader: Optional[DataLoader] = None, user_id: Optional[int] = None):
         self.data_loader = data_loader or DataLoader()
         self.planner = PlannerAgent()
-        self.insight = InsightAgent()
+        # Pass user_id to InsightAgent for A/B testing
+        self.insight = InsightAgent(user_id=user_id, prompt_version=None)
         self.viz = VisualizationAgent()
 
     def _is_question_relevant(self, question: str, df: pd.DataFrame) -> tuple[bool, str]:

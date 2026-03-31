@@ -28,6 +28,8 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import ChartViewer from './ChartViewer';
 import DynamicDataRenderer from './DynamicDataRenderer';
 
+
+
 const ResultsDisplay = ({ results, userQuestion }) => {
   const [expandedWarnings, setExpandedWarnings] = useState(false);
   

@@ -41,14 +41,23 @@ async def send_analysis(
         if not analysis:
             raise HTTPException(status_code=404, detail="No analysis found")
     
+    # Use raw_results instead of results
+    results_data = analysis.raw_results if analysis.raw_results else {}
+    
+    # Extract charts from results if they exist
+    charts = results_data.get('results', {}).get('charts', {})
+    if request.include_charts and not charts:
+        # Try to get charts from other locations
+        charts = results_data.get('charts', {})
+    
     # Send email in background
     email_service = EmailService()
     background_tasks.add_task(
         email_service.send_analysis_results,
         request.to_email,
         analysis.question,
-        analysis.results,
-        {}  # Charts would come from storage
+        results_data,  # Use raw_results, not results
+        charts if request.include_charts else {}
     )
     
     return {"message": "Email queued for sending"}

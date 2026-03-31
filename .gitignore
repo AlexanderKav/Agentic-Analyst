@@ -18,3 +18,114 @@ miscellaneous
 
 #
 scripts
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+agentic_analyst.db
+*.sql
+!scripts/init-*.sql
+
+# Logs
+logs/
+*.log
+*.log.*
+**/logs/
+**/*.log
+logs/**/*
+
+# Alembic migrations (if using)
+alembic/
+alembic.ini
+*.pyc
+__pycache__/
+
+# Environment
+.env
+.env.*
+!.env.example
+.venv
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Project specific
+agents/charts/*.png
+agents/charts/*.jpg
+!agents/charts/.gitkeep
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Docker
+.dockerignore
+
+# Node modules (frontend)
+frontend/node_modules/
+frontend/build/
+frontend/.env
+frontend/.env.local
+
+# Secrets
+*.key
+*.pem
+*.crt
+*.json
+!*.json.example
+!*/**/*.json.example
+!agentic-analyst-*.json
+agentic-analyst-*.json
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
+temp_file_*
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Alembic specific
+alembic/versions/
+!alembic/versions/.gitkeep
+
+updated.xlsx
+
+data.csv

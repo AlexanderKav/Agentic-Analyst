@@ -8,6 +8,8 @@ import time
 import re
 import math
 import numpy as np
+import sqlite3
+import traceback
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
@@ -23,7 +25,7 @@ from app.api.v1.models.responses import AnalysisResponse, FileUploadResponse, He
 from app.core.analysis import AnalysisOrchestrator
 from app.core.data_source import DataSourceHandler
 from app.core.database import get_db
-from app.api.v1.models.analysis import AnalysisHistory, AnalysisMetric, AnalysisInsight
+from app.api.v1.models.analysis import AnalysisHistory, AnalysisMetric, AnalysisInsight, AnalysisChart
 from app.api.v1.models.user import User
 from app.api.v1.endpoints.auth import get_current_user
 from connectors.database_connector import DatabaseConnector
@@ -243,6 +245,586 @@ def validate_dataframe(df: pd.DataFrame):
     
     return True
 
+    # ==================== CHART & HEALTH ENDPOINTS ====================
+
+@router.get("/chart/{filename}")
+async def get_chart(filename: str, key: int = 0):
+    """Serve chart images with cache busting"""
+    charts_dir = os.path.join(os.getcwd(), "agents", "charts")
+    file_path = os.path.join(charts_dir, filename)
+    
+    # Security: Prevent directory traversal
+    if '..' in filename or '/' in filename or '\\' in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Chart not found")
+    
+    return FileResponse(file_path, media_type="image/png", filename=filename)
+
+
+@router.get("/health", response_model=HealthResponse)
+async def health_check():
+    """Health check endpoint (no rate limit needed)"""
+    from datetime import datetime
+    return HealthResponse(
+        status="healthy",
+        version="1.0.0",
+        timestamp=datetime.utcnow().isoformat()
+    )
+# ==================== FILE SCHEMA VALIDATION ====================
+
+@router.post("/validate-schema")
+@limiter.limit("30/minute")
+async def validate_file_schema(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Validate file schema without running full analysis
+    """
+    temp_file_path = None
+    try:
+        print(f"\n{'='*60}")
+        print(f"🔍 VALIDATING FILE: {file.filename}")
+        print(f"User: {current_user.username}")
+        print(f"📏 File size: {file.size} bytes")
+        print(f"📁 Content type: {file.content_type}")
+        print(f"{'='*60}")
+        
+        # Check file extension
+        file_type = file.filename.split('.')[-1].lower()
+        allowed_extensions = ['csv', 'xlsx', 'xls']
+        print(f"📋 Detected file type: {file_type}")
+        
+        if file_type not in allowed_extensions:
+            print(f"❌ Invalid file type: {file_type}")
+            return {
+                "valid": False,
+                "message": f"File type not allowed. Allowed: {', '.join(allowed_extensions)}"
+            }
+        
+        # Save file temporarily
+        print(f"💾 Saving file temporarily...")
+        temp_file_path = await DataSourceHandler.save_upload_file(file)
+        print(f"✅ File saved to: {temp_file_path}")
+        print(f"📏 Saved file size: {os.path.getsize(temp_file_path)} bytes")
+        
+        # Read just the first few rows
+        print(f"📖 Reading file as {file_type}...")
+        try:
+            if file_type == 'csv':
+                df = pd.read_csv(temp_file_path, nrows=5)
+                print(f"✅ CSV read successfully")
+            else:
+                # Excel files
+                if file_type == 'xlsx':
+                    df = pd.read_excel(temp_file_path, nrows=5, engine='openpyxl')
+                else:
+                    df = pd.read_excel(temp_file_path, nrows=5, engine='xlrd')
+                print(f"✅ Excel read successfully")
+        except Exception as e:
+            print(f"❌ Failed to read file: {str(e)}")
+            return {
+                "valid": False,
+                "message": f"Could not read file: {str(e)}"
+            }
+        
+        print(f"📊 DataFrame shape: {df.shape}")
+        print(f"📋 Columns found: {list(df.columns)}")
+        
+        # Check for required columns (case-insensitive)
+        required_columns = ['date', 'revenue']
+        df_columns_lower = [col.lower() for col in df.columns]
+        
+        missing = []
+        found_columns = {}
+        
+        for req_col in required_columns:
+            if req_col in df_columns_lower:
+                original_col = df.columns[df_columns_lower.index(req_col)]
+                found_columns[req_col] = original_col
+                print(f"✅ Found '{req_col}' as column '{original_col}'")
+            else:
+                missing.append(req_col)
+                print(f"❌ Missing required column: '{req_col}'")
+        
+        if missing:
+            return {
+                "valid": False,
+                "message": f"Missing required columns: {', '.join(missing)}. Your file must contain 'date' and 'revenue' columns.",
+                "found_columns": list(df.columns)
+            }
+        
+        # Check date column can be parsed
+        date_col = found_columns['date']
+        print(f"📅 Validating date column: '{date_col}'")
+        try:
+            parsed_dates = pd.to_datetime(df[date_col], errors='coerce')
+            invalid_dates = parsed_dates.isna().sum()
+            if invalid_dates > 0:
+                return {
+                    "valid": False,
+                    "message": f"The '{date_col}' column contains {invalid_dates} invalid date format(s)."
+                }
+            print(f"✅ All dates are valid")
+        except Exception as e:
+            return {
+                "valid": False,
+                "message": f"Could not parse dates in column '{date_col}'. Error: {str(e)}"
+            }
+        
+        # Check revenue column is numeric
+        revenue_col = found_columns['revenue']
+        print(f"💰 Validating revenue column: '{revenue_col}'")
+        try:
+            numeric_revenue = pd.to_numeric(df[revenue_col], errors='coerce')
+            invalid_revenue = numeric_revenue.isna().sum()
+            if invalid_revenue > 0:
+                return {
+                    "valid": False,
+                    "message": f"The '{revenue_col}' column contains {invalid_revenue} non-numeric value(s)."
+                }
+            print(f"✅ All revenue values are numeric")
+        except Exception as e:
+            return {
+                "valid": False,
+                "message": f"Could not parse revenue in column '{revenue_col}'. Error: {str(e)}"
+            }
+        
+        print(f"✅✅✅ VALIDATION PASSED!")
+        
+        return {
+            "valid": True,
+            "message": "Schema validation passed",
+            "columns": list(df.columns),
+            "found_columns": found_columns
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "valid": False,
+            "message": f"Validation error: {str(e)}"
+        }
+    finally:
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.unlink(temp_file_path)
+            print(f"🧹 Cleaned up temp file: {temp_file_path}")
+
+
+
+# ==================== UPLOAD SQLITE ENDPOINT ====================
+
+@router.post("/test-sqlite-connection")
+@limiter.limit("20/minute")
+async def test_sqlite_connection(
+    request: Request,
+    file: UploadFile = File(...),
+    table: str = Form(...),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Test SQLite file connection and validate schema
+    """
+    temp_file_path = None
+    try:
+        print(f"\n{'='*60}")
+        print(f"🔍 TEST SQLITE CONNECTION REQUEST RECEIVED")
+        print(f"{'='*60}")
+        print(f"File: {file.filename}")
+        print(f"Table: {table}")
+        print(f"User: {current_user.username} (ID: {current_user.id})")
+        print(f"{'='*60}\n")
+        
+        # Check file size
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(0)
+        
+        if file_size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB"
+            )
+        
+        # Save file temporarily
+        temp_file_path = await DataSourceHandler.save_upload_file(file)
+        print(f"📁 File saved to: {temp_file_path}")
+        
+        # Connect to SQLite
+        print(f"🔌 Connecting to SQLite database...")
+        conn = sqlite3.connect(temp_file_path)
+        cursor = conn.cursor()
+        
+        # Check if table exists
+        print(f"📋 Checking if table '{table}' exists...")
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=400, detail=f"Table '{table}' not found in database")
+        
+        # Get column count
+        print(f"📊 Getting column info for table '{table}'...")
+        cursor.execute(f"PRAGMA table_info({table})")
+        columns = cursor.fetchall()
+        column_count = len(columns)
+        print(f"📊 Table has {column_count} columns")
+        
+        # Get row count
+        cursor.execute(f"SELECT COUNT(*) FROM {table}")
+        row_count = cursor.fetchone()[0]
+        print(f"📊 Table has {row_count} rows")
+        
+        # Read sample data
+        print(f"📖 Reading sample data...")
+        df = pd.read_sql_query(f"SELECT * FROM {table} LIMIT 5", conn)
+        conn.close()
+        
+        if len(df) == 0:
+            return {
+                "success": True,
+                "message": f"Connected to SQLite database but table '{table}' is empty",
+                "rows_preview": 0,
+                "columns": list(df.columns) if len(df.columns) > 0 else []
+            }
+        
+        # Validate schema
+        required_columns = ['date', 'revenue']
+        df_columns_lower = [col.lower() for col in df.columns]
+        
+        missing = []
+        found_columns = {}
+        
+        for req_col in required_columns:
+            if req_col in df_columns_lower:
+                original_col = df.columns[df_columns_lower.index(req_col)]
+                found_columns[req_col] = original_col
+                print(f"✅ Found '{req_col}' as column '{original_col}'")
+            else:
+                missing.append(req_col)
+                print(f"❌ Missing required column: '{req_col}'")
+        
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Schema validation failed: Missing required columns: {', '.join(missing)}. Your table must contain 'date' and 'revenue' columns."
+            )
+        
+        # Validate date column
+        date_col = found_columns['date']
+        print(f"📅 Validating date column '{date_col}'...")
+        try:
+            pd.to_datetime(df[date_col], errors='raise')
+            print("✅ Date column valid")
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Schema validation failed: Column '{date_col}' contains invalid date formats."
+            )
+        
+        # Validate revenue column
+        revenue_col = found_columns['revenue']
+        print(f"💰 Validating revenue column '{revenue_col}'...")
+        try:
+            pd.to_numeric(df[revenue_col], errors='raise')
+            print("✅ Revenue column valid")
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Schema validation failed: Column '{revenue_col}' contains non-numeric values."
+            )
+        
+        # Clean preview data
+        preview_data = df.head(3).to_dict('records')
+        cleaned_preview = []
+        for row in preview_data:
+            cleaned_row = {}
+            for key, value in row.items():
+                if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+                    cleaned_row[key] = None
+                elif isinstance(value, pd.Timestamp):
+                    cleaned_row[key] = value.isoformat()
+                else:
+                    cleaned_row[key] = value
+            cleaned_preview.append(cleaned_row)
+        
+        return {
+            "success": True,
+            "message": f"✅ Successfully connected! Table '{table}' has valid schema.",
+            "rows_preview": len(df),
+            "columns": list(df.columns),
+            "preview": cleaned_preview,
+            "found_columns": found_columns,
+            "size_info": {
+                "columns": column_count,
+                "rows": row_count
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        
+        traceback.print_exc()
+        print(f"❌ Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.unlink(temp_file_path)
+            print(f"🧹 Cleaned up temp file: {temp_file_path}")
+
+@router.post("/sqlite-tables")
+@limiter.limit("30/minute")
+async def get_sqlite_tables(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """Get list of tables from uploaded SQLite file"""
+    temp_file_path = None
+    try:
+        print(f"📁 SQLite tables request from user {current_user.username}")
+        
+        # Save file temporarily
+        temp_file_path = await DataSourceHandler.save_upload_file(file)
+        
+        # Connect to SQLite
+        import sqlite3
+        conn = sqlite3.connect(temp_file_path)
+        cursor = conn.cursor()
+        
+        # Get list of tables
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
+        tables = [row[0] for row in cursor.fetchall()]
+        
+        conn.close()
+        
+        return {"tables": tables}
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.unlink(temp_file_path)
+
+
+# app/api/v1/endpoints/analysis.py
+
+@router.post("/upload-sqlite", response_model=FileUploadResponse)
+@limiter.limit("10/minute")
+async def upload_sqlite_file(
+    request: Request,
+    file: UploadFile = File(...),
+    question: Optional[str] = Form(""),
+    table: Optional[str] = Form(""),  # Change from None to empty string
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload a SQLite file and analyze a specific table
+    """
+    temp_file_path = None
+    try:
+        print(f"\n{'='*60}")
+        print(f"📊 SQLITE FILE ANALYSIS REQUESTED")
+        print(f"{'='*60}")
+        print(f"File: {file.filename}")
+        print(f"Table: '{table}'")  # Print with quotes to see exact value
+        print(f"Question: {question[:50] if question else 'No question (overview)'}")
+        print(f"User: {current_user.username} (ID: {current_user.id})")
+        print(f"{'='*60}\n")
+        
+        # Check file size
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(0)
+        
+        if file_size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413, 
+                detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB"
+            )
+        
+        # Check file extension
+        file_type = file.filename.split('.')[-1].lower()
+        allowed_extensions = ['db', 'sqlite', 'sqlite3']
+        if file_type not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File type not allowed. Allowed: {', '.join(allowed_extensions)}"
+            )
+        
+        # Save file temporarily
+        import tempfile
+        import os
+        
+        # Create a temporary file with the original extension
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_type}") as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            temp_file_path = tmp_file.name
+        
+        print(f"📁 File saved to: {temp_file_path}")
+        print(f"📏 File size: {os.path.getsize(temp_file_path)} bytes")
+        
+        # Read SQLite file
+        print(f"📊 Reading SQLite file...")
+        
+        # Connect to the SQLite file
+        conn = sqlite3.connect(temp_file_path)
+        
+        # If table not specified or empty string, get first table
+        if not table or not table.strip():
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
+            tables = cursor.fetchall()
+            if not tables:
+                conn.close()
+                raise HTTPException(status_code=400, detail="SQLite file contains no tables")
+            table = tables[0][0]
+            print(f"📊 No table specified, using first table: {table}")
+        
+        # Clean the table name (remove any extra spaces)
+        table = table.strip()
+        
+        # Check if table exists
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+        if not cursor.fetchone():
+            available_tables = [row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+            conn.close()
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Table '{table}' not found. Available tables: {', '.join(available_tables)}"
+            )
+        
+        # Read the table
+        print(f"📋 Reading table: {table}")
+        df = pd.read_sql_query(f"SELECT * FROM [{table}]" if ' ' in table else f"SELECT * FROM {table}", conn)
+        conn.close()
+        
+        print(f"✅ Loaded {len(df)} rows from SQLite table '{table}'")
+        
+        if len(df) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Table '{table}' is empty. Please select a table with data."
+            )
+        
+        # 🔐 VALIDATE THE DATAFRAME
+        validate_dataframe(df)
+        
+        # Create preview (5 rows) and clean NaN values
+        preview_data = df.head(5).to_dict('records')
+        cleaned_preview = []
+        for row in preview_data:
+            cleaned_row = {}
+            for key, value in row.items():
+                if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+                    cleaned_row[key] = None
+                elif isinstance(value, pd.Timestamp):
+                    cleaned_row[key] = value.isoformat()
+                else:
+                    cleaned_row[key] = value
+            cleaned_preview.append(cleaned_row)
+        
+        # Run analysis
+        results, exec_time = await orchestrator.analyze_dataframe(df, question or "")
+        
+        # Ensure results is a dictionary
+        if results is None:
+            results = {}
+        
+        # Create the analysis_results structure
+        analysis_results = {
+            "success": results.get("success", False),
+            "insights": results.get("insights", ""),
+            "raw_insights": results.get("raw_insights", {}),
+            "results": results.get("results", {}),
+            "plan": results.get("plan", {"plan": []}),
+            "warnings": results.get("warnings", []),
+            "mapping": results.get("mapping", {}),
+            "data_summary": results.get("data_summary", {
+                "rows": len(df),
+                "columns": list(df.columns)
+            }),
+            "execution_time": exec_time,
+            "is_generic_overview": results.get("is_generic_overview", False)
+        }
+        
+        # Deep clean for JSON serialization
+        def deep_clean_for_json(obj):
+            if obj is None:
+                return None
+            elif isinstance(obj, (str, int, float, bool)):
+                return obj
+            elif isinstance(obj, (np.integer, np.floating)):
+                return float(obj) if isinstance(obj, np.floating) else int(obj)
+            elif isinstance(obj, (pd.Timestamp, datetime)):
+                return obj.isoformat()
+            elif isinstance(obj, dict):
+                return {str(k): deep_clean_for_json(v) for k, v in obj.items()}
+            elif isinstance(obj, (list, tuple, set)):
+                return [deep_clean_for_json(item) for item in obj]
+            elif isinstance(obj, pd.Series):
+                return deep_clean_for_json(obj.to_dict())
+            elif isinstance(obj, pd.DataFrame):
+                return deep_clean_for_json(obj.to_dict('records'))
+            else:
+                try:
+                    return str(obj)
+                except:
+                    return None
+        
+        cleaned_results = deep_clean_for_json(analysis_results)
+        
+        # Save to history
+        from app.api.v1.models.analysis import AnalysisHistory
+        history = AnalysisHistory(
+            user_id=current_user.id,
+            analysis_type="sqlite",
+            question=question or "General Overview",
+            raw_results=cleaned_results,
+            data_source={
+                "filename": file.filename,
+                "table": table,
+                "rows": len(df),
+                "columns": list(df.columns)
+            }
+        )
+        db.add(history)
+        db.commit()
+        db.refresh(history)
+        
+        print(f"💾 Analysis saved to history (ID: {history.id})")
+        
+        return FileUploadResponse(
+            filename=file.filename,
+            rows=len(df),
+            columns=list(df.columns),
+            preview=cleaned_preview,
+            analysis_results=cleaned_results
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        # Return a clean error message (string, not object)
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+    finally:
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+                print(f"🧹 Cleaned up temp file: {temp_file_path}")
+            except:
+                pass
 # ==================== DATABASE ENDPOINTS ====================
 
 @router.post("/database", response_model=FileUploadResponse)
@@ -256,6 +838,9 @@ async def analyze_database(
     """
     Connect to a database and analyze data
     """
+    # Create orchestrator with user_id for A/B testing
+    orchestrator = AnalysisOrchestrator(user_id=current_user.id)
+    
     try:
         config = db_request.connection_config
         
@@ -744,7 +1329,10 @@ async def upload_file(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Upload a file (CSV/Excel/SQLite) and analyze it"""
+    """Upload a file (CSV/Excel) and analyze it"""
+    # Create orchestrator with user_id for A/B testing
+    orchestrator = AnalysisOrchestrator(user_id=current_user.id)
+    
     temp_file_path = None
     try:
         # Check file size
@@ -758,9 +1346,9 @@ async def upload_file(
                 detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB"
             )
         
-        # Check file extension
+        # Check file extension - removed SQLite extensions
         file_type = file.filename.split('.')[-1].lower()
-        allowed_extensions = ['csv', 'xlsx', 'xls', 'db', 'sqlite', 'sqlite3']
+        allowed_extensions = ['csv', 'xlsx', 'xls']
         if file_type not in allowed_extensions:
             raise HTTPException(
                 status_code=400,
@@ -776,34 +1364,7 @@ async def upload_file(
         # Read data based on file type
         df = None
         
-        if file_type in ['db', 'sqlite', 'sqlite3']:
-            # Handle SQLite files
-            print("📊 Reading SQLite file...")
-            import sqlite3
-            
-            # Connect to the SQLite file
-            conn = sqlite3.connect(temp_file_path)
-            
-            # Get list of tables
-            cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-            tables = cursor.fetchall()
-            
-            if not tables:
-                conn.close()
-                raise HTTPException(status_code=400, detail="SQLite file contains no tables")
-            
-            # Use the first table (or let user specify table name in the future)
-            table_name = tables[0][0]
-            print(f"📊 Reading table: {table_name}")
-            
-            # Read the table
-            df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
-            conn.close()
-            
-            print(f"✅ Loaded {len(df)} rows from SQLite table '{table_name}'")
-            
-        elif file_type == 'csv':
+        if file_type == 'csv':
             # Handle CSV files
             print("📊 Reading CSV file...")
             df = pd.read_csv(temp_file_path)
@@ -936,6 +1497,7 @@ async def upload_file(
             os.unlink(temp_file_path)
             print(f"🧹 Cleaned up temp file: {temp_file_path}")
 
+
 # ==================== GOOGLE SHEETS ENDPOINTS ====================
 
 @router.post("/google-sheets", response_model=FileUploadResponse)
@@ -949,6 +1511,9 @@ async def analyze_google_sheets(
     """
     Connect to Google Sheets and analyze data
     """
+    # Create orchestrator with user_id for A/B testing
+    orchestrator = AnalysisOrchestrator(user_id=current_user.id)
+    
     try:
         config = sheets_request.sheet_config
         print(f"📊 Google Sheets analysis requested for: {config.get('sheet_id')}")
@@ -1087,6 +1652,7 @@ async def analyze_google_sheets(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.post("/test-google-sheets")
 @limiter.limit("30/minute")
 async def test_google_sheets_connection(
@@ -1201,6 +1767,7 @@ async def test_google_sheets_connection(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
 # ==================== HISTORY ENDPOINTS ====================
 
 @router.get("/history")
@@ -1229,7 +1796,7 @@ async def get_analysis_history(
     for h in history:
         # Get summary metrics for this analysis (if available)
         summary_metrics = {}
-        if h.metrics:
+        if hasattr(h, 'metrics') and h.metrics:
             # Get key metrics for quick display
             revenue_metric = next((m for m in h.metrics if m.metric_type == 'total_revenue'), None)
             profit_metric = next((m for m in h.metrics if m.metric_type == 'profit_margin'), None)
@@ -1240,7 +1807,7 @@ async def get_analysis_history(
                 summary_metrics['profit_margin'] = float(profit_metric.metric_value)
         
         # Get insight count
-        insight_count = len(h.insights) if h.insights else 0
+        insight_count = len(h.insights) if hasattr(h, 'insights') and h.insights else 0
         
         result.append({
             "id": h.id,
@@ -1289,7 +1856,7 @@ async def get_analysis_by_id(
     }
     
     # Add structured metrics if available
-    if analysis.metrics:
+    if hasattr(analysis, 'metrics') and analysis.metrics:
         metrics_by_category = {}
         for metric in analysis.metrics:
             metric_dict = {
@@ -1310,7 +1877,7 @@ async def get_analysis_by_id(
         response["structured_metrics"] = metrics_by_category
     
     # Add structured insights if available
-    if analysis.insights:
+    if hasattr(analysis, 'insights') and analysis.insights:
         insights_by_type = {}
         for insight in analysis.insights:
             insight_dict = {
@@ -1325,7 +1892,7 @@ async def get_analysis_by_id(
         response["insights"] = insights_by_type
     
     # Add chart references if available
-    if analysis.charts:
+    if hasattr(analysis, 'charts') and analysis.charts:
         response["charts"] = [
             {
                 "type": chart.chart_type,
@@ -1426,7 +1993,6 @@ async def get_analysis_insights(
         ]
     }
 
-
 @router.get("/history/{history_id}/charts")
 async def get_analysis_charts(
     history_id: int,
@@ -1456,6 +2022,7 @@ async def get_analysis_charts(
     }
 
 
+
 @router.delete("/history/{history_id}")
 async def delete_analysis(
     history_id: int,
@@ -1473,20 +2040,20 @@ async def delete_analysis(
     
     # Also delete associated chart files
     import os
-    for chart in analysis.charts:
-        if chart.chart_path and os.path.exists(chart.chart_path):
-            try:
-                os.remove(chart.chart_path)
-                print(f"Deleted chart file: {chart.chart_path}")
-            except Exception as e:
-                print(f"Could not delete chart file: {e}")
+    if hasattr(analysis, 'charts') and analysis.charts:
+        for chart in analysis.charts:
+            if chart.chart_path and os.path.exists(chart.chart_path):
+                try:
+                    os.remove(chart.chart_path)
+                    print(f"Deleted chart file: {chart.chart_path}")
+                except Exception as e:
+                    print(f"Could not delete chart file: {e}")
     
     # Delete the analysis (cascades to metrics, insights, charts)
     db.delete(analysis)
     db.commit()
     
     return {"message": "Analysis deleted successfully"}
-
 
 @router.get("/history/aggregate/metrics")
 async def get_aggregate_metrics(
@@ -1552,632 +2119,3 @@ async def get_aggregate_metrics(
         "trend": trend,
         "period_days": days
     }
-
-
-# ==================== CHART & HEALTH ENDPOINTS ====================
-
-@router.get("/chart/{filename}")
-async def get_chart(filename: str, key: int = 0):
-    """Serve chart images with cache busting"""
-    charts_dir = os.path.join(os.getcwd(), "agents", "charts")
-    file_path = os.path.join(charts_dir, filename)
-    
-    # Security: Prevent directory traversal
-    if '..' in filename or '/' in filename or '\\' in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Chart not found")
-    
-    return FileResponse(file_path, media_type="image/png", filename=filename)
-
-
-@router.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Health check endpoint (no rate limit needed)"""
-    from datetime import datetime
-    return HealthResponse(
-        status="healthy",
-        version="1.0.0",
-        timestamp=datetime.utcnow().isoformat()
-    )
-
-
-@router.post("/validate-schema")
-@limiter.limit("30/minute")
-async def validate_file_schema(
-    request: Request,
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Validate file schema without running full analysis
-    """
-    temp_file_path = None
-    try:
-        print(f"\n{'='*60}")
-        print(f"🔍 VALIDATING FILE: {file.filename}")
-        print(f"User: {current_user.username}")
-        print(f"📏 File size: {file.size} bytes")
-        print(f"📁 Content type: {file.content_type}")
-        print(f"{'='*60}")
-        
-        # Check file extension
-        file_type = file.filename.split('.')[-1].lower()
-        allowed_extensions = ['csv', 'xlsx', 'xls', 'db', 'sqlite', 'sqlite3']
-        print(f"📋 Detected file type: {file_type}")
-        
-        if file_type not in allowed_extensions:
-            print(f"❌ Invalid file type: {file_type}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"File type not allowed. Allowed: {', '.join(allowed_extensions)}"
-            )
-        
-        # Save file temporarily
-        print(f"💾 Saving file temporarily...")
-        temp_file_path = await DataSourceHandler.save_upload_file(file)
-        print(f"✅ File saved to: {temp_file_path}")
-        print(f"📏 Saved file size: {os.path.getsize(temp_file_path)} bytes")
-        
-        # Read just the first few rows based on file type
-        print(f"📖 Reading file as {file_type}...")
-        try:
-            if file_type in ['db', 'sqlite', 'sqlite3']:
-                # For SQLite, read the first table
-                import sqlite3
-                conn = sqlite3.connect(temp_file_path)
-                cursor = conn.cursor()
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-                tables = cursor.fetchall()
-                if tables:
-                    table_name = tables[0][0]
-                    df = pd.read_sql_query(f"SELECT * FROM {table_name} LIMIT 5", conn)
-                else:
-                    df = pd.DataFrame()
-                conn.close()
-                print(f"✅ SQLite read successfully")
-            elif file_type == 'csv':
-                df = pd.read_csv(temp_file_path, nrows=5)
-                print(f"✅ CSV read successfully")
-            else:
-                # Excel files
-                if file_type == 'xlsx':
-                    df = pd.read_excel(temp_file_path, nrows=5, engine='openpyxl')
-                else:
-                    df = pd.read_excel(temp_file_path, nrows=5, engine='xlrd')
-                print(f"✅ Excel read successfully")
-        except Exception as e:
-            print(f"❌ Failed to read file: {str(e)}")
-            return {
-                "valid": False,
-                "message": f"Could not read file: {str(e)}"
-            }
-        
-        
-        print(f"📊 DataFrame shape: {df.shape}")
-        print(f"📋 Columns found: {list(df.columns)}")
-        
-        # Check for required columns (case-insensitive)
-        required_columns = ['date', 'revenue']
-        df_columns_lower = [col.lower() for col in df.columns]
-        
-        print(f"🔤 Lowercase columns: {df_columns_lower}")
-        
-        missing = []
-        found_columns = {}
-        
-        for req_col in required_columns:
-            if req_col in df_columns_lower:
-                original_col = df.columns[df_columns_lower.index(req_col)]
-                found_columns[req_col] = original_col
-                print(f"✅ Found '{req_col}' as column '{original_col}'")
-            else:
-                missing.append(req_col)
-                print(f"❌ Missing required column: '{req_col}'")
-        
-        if missing:
-            print(f"❌ Validation failed: Missing columns {missing}")
-            return {
-                "valid": False,
-                "message": f"Missing required columns: {', '.join(missing)}. Your file must contain 'date' and 'revenue' columns.",
-                "found_columns": list(df.columns)
-            }
-        
-        # Check date column can be parsed
-        date_col = found_columns['date']
-        print(f"📅 Validating date column: '{date_col}'")
-        
-        try:
-            parsed_dates = pd.to_datetime(df[date_col], errors='coerce')
-            invalid_dates = parsed_dates.isna().sum()
-            
-            if invalid_dates > 0:
-                print(f"⚠️ Found {invalid_dates} invalid dates")
-                return {
-                    "valid": False,
-                    "message": f"The '{date_col}' column contains {invalid_dates} invalid date format(s).",
-                    "found_columns": list(df.columns)
-                }
-            print(f"✅ All dates are valid")
-        except Exception as e:
-            print(f"❌ Date parsing error: {str(e)}")
-            return {
-                "valid": False,
-                "message": f"Could not parse dates in column '{date_col}'. Error: {str(e)}",
-                "found_columns": list(df.columns)
-            }
-        
-        # Check revenue column is numeric
-        revenue_col = found_columns['revenue']
-        print(f"💰 Validating revenue column: '{revenue_col}'")
-        
-        try:
-            numeric_revenue = pd.to_numeric(df[revenue_col], errors='coerce')
-            invalid_revenue = numeric_revenue.isna().sum()
-            
-            if invalid_revenue > 0:
-                print(f"⚠️ Found {invalid_revenue} non-numeric revenue values")
-                return {
-                    "valid": False,
-                    "message": f"The '{revenue_col}' column contains {invalid_revenue} non-numeric value(s).",
-                    "found_columns": list(df.columns)
-                }
-            print(f"✅ All revenue values are numeric")
-        except Exception as e:
-            print(f"❌ Revenue parsing error: {str(e)}")
-            return {
-                "valid": False,
-                "message": f"Could not parse revenue in column '{revenue_col}'. Error: {str(e)}",
-                "found_columns": list(df.columns)
-            }
-        
-        print(f"\n{'='*60}")
-        print(f"✅✅✅ VALIDATION PASSED! File is ready for analysis.")
-        print(f"{'='*60}\n")
-        
-        # Clean the preview data to remove NaN values
-        preview_data = df.head(2).to_dict('records')
-        cleaned_preview = []
-        for row in preview_data:
-            cleaned_row = {}
-            for key, value in row.items():
-                if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-                    cleaned_row[key] = None
-                elif isinstance(value, pd.Timestamp):
-                    cleaned_row[key] = value.isoformat()
-                else:
-                    cleaned_row[key] = value
-            cleaned_preview.append(cleaned_row)
-        
-        return {
-            "valid": True,
-            "message": "Schema validation passed",
-            "columns": list(df.columns),
-            "preview": cleaned_preview,
-            "found_columns": found_columns
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"❌ Unexpected error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if temp_file_path and os.path.exists(temp_file_path):
-            os.unlink(temp_file_path)
-            print(f"🧹 Cleaned up temp file: {temp_file_path}")
-
-
-@router.post("/test-sqlite-connection")
-@limiter.limit("20/minute")
-async def test_sqlite_connection(
-    request: Request,
-    file: UploadFile = File(...),
-    table: str = Form(...),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Test SQLite file connection and validate schema
-    """
-    temp_file_path = None
-    try:
-        print(f"\n{'='*60}")
-        print(f"🔍 TEST SQLITE CONNECTION REQUEST RECEIVED")
-        print(f"{'='*60}")
-        print(f"File: {file.filename}")
-        print(f"Table: {table}")
-        print(f"User: {current_user.username} (ID: {current_user.id})")
-        print(f"{'='*60}\n")
-        
-        # Check file size
-        file.file.seek(0, 2)
-        file_size = file.file.tell()
-        file.file.seek(0)
-        
-        if file_size > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=413,
-                detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB"
-            )
-        
-        # Save file temporarily
-        temp_file_path = await DataSourceHandler.save_upload_file(file)
-        print(f"📁 File saved to: {temp_file_path}")
-        
-        # Connect to SQLite
-        import sqlite3
-        print(f"🔌 Connecting to SQLite database...")
-        conn = sqlite3.connect(temp_file_path)
-        cursor = conn.cursor()
-        
-        # Check if table exists
-        print(f"📋 Checking if table '{table}' exists...")
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
-        if not cursor.fetchone():
-            conn.close()
-            raise HTTPException(status_code=400, detail=f"Table '{table}' not found in database")
-        
-        # Get column count
-        print(f"📊 Getting column info for table '{table}'...")
-        cursor.execute(f"PRAGMA table_info({table})")
-        columns = cursor.fetchall()
-        column_count = len(columns)
-        print(f"📊 Table has {column_count} columns")
-        
-        # Get row count
-        cursor.execute(f"SELECT COUNT(*) FROM {table}")
-        row_count = cursor.fetchone()[0]
-        print(f"📊 Table has {row_count} rows")
-        
-        # Read sample data
-        print(f"📖 Reading sample data...")
-        df = pd.read_sql_query(f"SELECT * FROM {table} LIMIT 5", conn)
-        conn.close()
-        
-        if len(df) == 0:
-            return {
-                "success": True,
-                "message": f"Connected to SQLite database but table '{table}' is empty",
-                "rows_preview": 0,
-                "columns": list(df.columns) if len(df.columns) > 0 else []
-            }
-        
-        # Validate schema
-        required_columns = ['date', 'revenue']
-        df_columns_lower = [col.lower() for col in df.columns]
-        
-        missing = []
-        found_columns = {}
-        
-        for req_col in required_columns:
-            if req_col in df_columns_lower:
-                original_col = df.columns[df_columns_lower.index(req_col)]
-                found_columns[req_col] = original_col
-                print(f"✅ Found '{req_col}' as column '{original_col}'")
-            else:
-                missing.append(req_col)
-                print(f"❌ Missing required column: '{req_col}'")
-        
-        if missing:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Schema validation failed: Missing required columns: {', '.join(missing)}. Your table must contain 'date' and 'revenue' columns."
-            )
-        
-        # Validate date column
-        date_col = found_columns['date']
-        print(f"📅 Validating date column '{date_col}'...")
-        try:
-            pd.to_datetime(df[date_col], errors='raise')
-            print("✅ Date column valid")
-        except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Schema validation failed: Column '{date_col}' contains invalid date formats."
-            )
-        
-        # Validate revenue column
-        revenue_col = found_columns['revenue']
-        print(f"💰 Validating revenue column '{revenue_col}'...")
-        try:
-            pd.to_numeric(df[revenue_col], errors='raise')
-            print("✅ Revenue column valid")
-        except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Schema validation failed: Column '{revenue_col}' contains non-numeric values."
-            )
-        
-        # Clean preview data
-        preview_data = df.head(3).to_dict('records')
-        cleaned_preview = []
-        for row in preview_data:
-            cleaned_row = {}
-            for key, value in row.items():
-                if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-                    cleaned_row[key] = None
-                elif isinstance(value, pd.Timestamp):
-                    cleaned_row[key] = value.isoformat()
-                else:
-                    cleaned_row[key] = value
-            cleaned_preview.append(cleaned_row)
-        
-        return {
-            "success": True,
-            "message": f"✅ Successfully connected! Table '{table}' has valid schema.",
-            "rows_preview": len(df),
-            "columns": list(df.columns),
-            "preview": cleaned_preview,
-            "found_columns": found_columns,
-            "size_info": {
-                "columns": column_count,
-                "rows": row_count
-            }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"❌ Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if temp_file_path and os.path.exists(temp_file_path):
-            os.unlink(temp_file_path)
-            print(f"🧹 Cleaned up temp file: {temp_file_path}")
-
-@router.post("/sqlite-tables")
-@limiter.limit("30/minute")
-async def get_sqlite_tables(
-    request: Request,
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user)
-):
-    """Get list of tables from uploaded SQLite file"""
-    temp_file_path = None
-    try:
-        print(f"📁 SQLite tables request from user {current_user.username}")
-        
-        # Save file temporarily
-        temp_file_path = await DataSourceHandler.save_upload_file(file)
-        
-        # Connect to SQLite
-        import sqlite3
-        conn = sqlite3.connect(temp_file_path)
-        cursor = conn.cursor()
-        
-        # Get list of tables
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
-        tables = [row[0] for row in cursor.fetchall()]
-        
-        conn.close()
-        
-        return {"tables": tables}
-        
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if temp_file_path and os.path.exists(temp_file_path):
-            os.unlink(temp_file_path)
-
-
-# app/api/v1/endpoints/analysis.py
-
-@router.post("/upload-sqlite", response_model=FileUploadResponse)
-@limiter.limit("10/minute")
-async def upload_sqlite_file(
-    request: Request,
-    file: UploadFile = File(...),
-    question: Optional[str] = Form(""),
-    table: Optional[str] = Form(""),  # Change from None to empty string
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Upload a SQLite file and analyze a specific table
-    """
-    temp_file_path = None
-    try:
-        print(f"\n{'='*60}")
-        print(f"📊 SQLITE FILE ANALYSIS REQUESTED")
-        print(f"{'='*60}")
-        print(f"File: {file.filename}")
-        print(f"Table: '{table}'")  # Print with quotes to see exact value
-        print(f"Question: {question[:50] if question else 'No question (overview)'}")
-        print(f"User: {current_user.username} (ID: {current_user.id})")
-        print(f"{'='*60}\n")
-        
-        # Check file size
-        file.file.seek(0, 2)
-        file_size = file.file.tell()
-        file.file.seek(0)
-        
-        if file_size > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=413, 
-                detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB"
-            )
-        
-        # Check file extension
-        file_type = file.filename.split('.')[-1].lower()
-        allowed_extensions = ['db', 'sqlite', 'sqlite3']
-        if file_type not in allowed_extensions:
-            raise HTTPException(
-                status_code=400,
-                detail=f"File type not allowed. Allowed: {', '.join(allowed_extensions)}"
-            )
-        
-        # Save file temporarily
-        import tempfile
-        import os
-        
-        # Create a temporary file with the original extension
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_type}") as tmp_file:
-            content = await file.read()
-            tmp_file.write(content)
-            temp_file_path = tmp_file.name
-        
-        print(f"📁 File saved to: {temp_file_path}")
-        print(f"📏 File size: {os.path.getsize(temp_file_path)} bytes")
-        
-        # Read SQLite file
-        print(f"📊 Reading SQLite file...")
-        import sqlite3
-        import pandas as pd
-        
-        # Connect to the SQLite file
-        conn = sqlite3.connect(temp_file_path)
-        
-        # If table not specified or empty string, get first table
-        if not table or not table.strip():
-            cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
-            tables = cursor.fetchall()
-            if not tables:
-                conn.close()
-                raise HTTPException(status_code=400, detail="SQLite file contains no tables")
-            table = tables[0][0]
-            print(f"📊 No table specified, using first table: {table}")
-        
-        # Clean the table name (remove any extra spaces)
-        table = table.strip()
-        
-        # Check if table exists
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
-        if not cursor.fetchone():
-            available_tables = [row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
-            conn.close()
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Table '{table}' not found. Available tables: {', '.join(available_tables)}"
-            )
-        
-        # Read the table
-        print(f"📋 Reading table: {table}")
-        df = pd.read_sql_query(f"SELECT * FROM [{table}]" if ' ' in table else f"SELECT * FROM {table}", conn)
-        conn.close()
-        
-        print(f"✅ Loaded {len(df)} rows from SQLite table '{table}'")
-        
-        if len(df) == 0:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Table '{table}' is empty. Please select a table with data."
-            )
-        
-        # 🔐 VALIDATE THE DATAFRAME
-        validate_dataframe(df)
-        
-        # Create preview (5 rows) and clean NaN values
-        preview_data = df.head(5).to_dict('records')
-        cleaned_preview = []
-        for row in preview_data:
-            cleaned_row = {}
-            for key, value in row.items():
-                if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-                    cleaned_row[key] = None
-                elif isinstance(value, pd.Timestamp):
-                    cleaned_row[key] = value.isoformat()
-                else:
-                    cleaned_row[key] = value
-            cleaned_preview.append(cleaned_row)
-        
-        # Run analysis
-        results, exec_time = await orchestrator.analyze_dataframe(df, question or "")
-        
-        # Ensure results is a dictionary
-        if results is None:
-            results = {}
-        
-        # Create the analysis_results structure
-        analysis_results = {
-            "success": results.get("success", False),
-            "insights": results.get("insights", ""),
-            "raw_insights": results.get("raw_insights", {}),
-            "results": results.get("results", {}),
-            "plan": results.get("plan", {"plan": []}),
-            "warnings": results.get("warnings", []),
-            "mapping": results.get("mapping", {}),
-            "data_summary": results.get("data_summary", {
-                "rows": len(df),
-                "columns": list(df.columns)
-            }),
-            "execution_time": exec_time,
-            "is_generic_overview": results.get("is_generic_overview", False)
-        }
-        
-        # Deep clean for JSON serialization
-        def deep_clean_for_json(obj):
-            if obj is None:
-                return None
-            elif isinstance(obj, (str, int, float, bool)):
-                return obj
-            elif isinstance(obj, (np.integer, np.floating)):
-                return float(obj) if isinstance(obj, np.floating) else int(obj)
-            elif isinstance(obj, (pd.Timestamp, datetime)):
-                return obj.isoformat()
-            elif isinstance(obj, dict):
-                return {str(k): deep_clean_for_json(v) for k, v in obj.items()}
-            elif isinstance(obj, (list, tuple, set)):
-                return [deep_clean_for_json(item) for item in obj]
-            elif isinstance(obj, pd.Series):
-                return deep_clean_for_json(obj.to_dict())
-            elif isinstance(obj, pd.DataFrame):
-                return deep_clean_for_json(obj.to_dict('records'))
-            else:
-                try:
-                    return str(obj)
-                except:
-                    return None
-        
-        cleaned_results = deep_clean_for_json(analysis_results)
-        
-        # Save to history
-        from app.api.v1.models.analysis import AnalysisHistory
-        history = AnalysisHistory(
-            user_id=current_user.id,
-            analysis_type="sqlite",
-            question=question or "General Overview",
-            raw_results=cleaned_results,
-            data_source={
-                "filename": file.filename,
-                "table": table,
-                "rows": len(df),
-                "columns": list(df.columns)
-            }
-        )
-        db.add(history)
-        db.commit()
-        db.refresh(history)
-        
-        print(f"💾 Analysis saved to history (ID: {history.id})")
-        
-        return FileUploadResponse(
-            filename=file.filename,
-            rows=len(df),
-            columns=list(df.columns),
-            preview=cleaned_preview,
-            analysis_results=cleaned_results
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        # Return a clean error message (string, not object)
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
-    finally:
-        if temp_file_path and os.path.exists(temp_file_path):
-            try:
-                os.unlink(temp_file_path)
-                print(f"🧹 Cleaned up temp file: {temp_file_path}")
-            except:
-                pass
