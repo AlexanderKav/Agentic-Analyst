@@ -1,5 +1,6 @@
+// frontend/src/App.js - Simplified version with proper routing
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import {
   Container,
   AppBar,
@@ -20,18 +21,18 @@ import {
   Badge
 } from '@mui/material';
 import FileUpload from './components/FileUpload';
-// Keep the import but we'll use SimpleDatabaseConnection instead
-// import DatabaseConnectionForm from './components/DatabaseConnectionForm';
 import SimpleDatabaseConnection from './components/SimpleDatabaseConnection';
 import GoogleSheetsConnectionForm from './components/GoogleSheetsConnectionForm';
 import QuestionInput from './components/QuestionInput';
 import DataPreview from './components/DataPreview';
 import ResultsDisplay from './components/ResultsDisplay';
-import Login from './components/Login';
 import LoginPage from './components/LoginPage';
 import HistoryDrawer from './components/HistoryDrawer';
 import ProtectedRoute from './components/ProtectedRoute';
 import VerificationSuccess from './components/VerificationSuccess';
+import ForgotPassword from './components/ForgotPassword';
+import ResetPassword from './components/ResetPassword';
+import RegisterPage from './components/RegisterPage';
 import UploadIcon from '@mui/icons-material/CloudUpload';
 import DatabaseIcon from '@mui/icons-material/Storage';
 import GoogleIcon from '@mui/icons-material/Google';
@@ -59,7 +60,6 @@ function DashboardContent() {
   const [error, setError] = useState(null);
   const [openSnackbar, setOpenSnackbar] = useState(false);
   const [userQuestion, setUserQuestion] = useState('');
-  const [loginOpen, setLoginOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
   const [emailSending, setEmailSending] = useState(false);
@@ -71,20 +71,22 @@ function DashboardContent() {
   
   const { user, logout, isAuthenticated, refreshUser } = useAuth();
 
+  useEffect(() => {
+    console.log('📊 DashboardContent: Auth state changed');
+    console.log('   isAuthenticated:', isAuthenticated);
+    console.log('   user:', user?.username);
+  }, [isAuthenticated, user]);
+
   // Listen for verification messages from the verification tab
   useEffect(() => {
     const handleMessage = (event) => {
       if (event.data === 'email-verified') {
-        // Refresh user data to get updated verification status
         refreshUser();
       }
     };
 
     window.addEventListener('message', handleMessage);
-    
-    return () => {
-      window.removeEventListener('message', handleMessage);
-    };
+    return () => window.removeEventListener('message', handleMessage);
   }, [refreshUser]);
 
   const handleMenu = (event) => setAnchorEl(event.currentTarget);
@@ -103,51 +105,33 @@ function DashboardContent() {
 
   const handleHistoryClose = () => setHistoryOpen(false);
 
-const handleLoadHistoryItem = async (id) => {
-  try {
-    setLoading(true);
-    // Use includeRaw=true to get full results
-    const analysis = await getAnalysisById(id, true);
-    
-    // Handle both old and new response formats
-    if (analysis.results) {
-      // Old format: results directly in response
-      setResults(analysis.results);
-    } else if (analysis.raw_results) {
-      // New format: raw_results contains the analysis data
-      setResults(analysis.raw_results);
-    } else {
-      // Build results from structured data
-      const structuredResults = {};
+  const handleLoadHistoryItem = async (id) => {
+    try {
+      setLoading(true);
+      const analysis = await getAnalysisById(id, true);
       
-      // Add metrics if available
-      if (analysis.structured_metrics) {
-        structuredResults.metrics = analysis.structured_metrics;
+      if (analysis.results) {
+        setResults(analysis.results);
+      } else if (analysis.raw_results) {
+        setResults(analysis.raw_results);
+      } else {
+        const structuredResults = {};
+        if (analysis.structured_metrics) structuredResults.metrics = analysis.structured_metrics;
+        if (analysis.insights) structuredResults.insights = analysis.insights;
+        if (analysis.charts) structuredResults.charts = analysis.charts;
+        setResults(structuredResults);
       }
       
-      // Add insights if available
-      if (analysis.insights) {
-        structuredResults.insights = analysis.insights;
-      }
-      
-      // Add charts if available
-      if (analysis.charts) {
-        structuredResults.charts = analysis.charts;
-      }
-      
-      setResults(structuredResults);
+      setUserQuestion(analysis.question);
+      setHistoryOpen(false);
+    } catch (err) {
+      console.error('Failed to load analysis:', err);
+      setError('Failed to load analysis');
+      setOpenSnackbar(true);
+    } finally {
+      setLoading(false);
     }
-    
-    setUserQuestion(analysis.question);
-    setHistoryOpen(false);
-  } catch (err) {
-    console.error('Failed to load analysis:', err);
-    setError('Failed to load analysis');
-    setOpenSnackbar(true);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const handleEmailResults = async () => {
     if (!user?.email) {
@@ -212,28 +196,6 @@ const handleLoadHistoryItem = async (id) => {
     }
   };
 
-  const handleTestDatabaseConnection = async (config) => {
-    try {
-      const result = await testDatabaseConnection(config);
-      return { success: true, data: result };
-    } catch (error) {
-      setDataSourceReady(false);
-      setUserQuestion('');
-      throw error;
-    }
-  };
-
-  const handleTestGoogleSheetsConnection = async (config) => {
-    try {
-      const result = await testGoogleSheetsConnection(config);
-      return { success: true, data: result };
-    } catch (error) {
-      setDataSourceReady(false);
-      setUserQuestion('');
-      throw error;
-    }
-  };
-
   const handleClearResults = () => {
     setResults(null);
     setPreview(null);
@@ -241,7 +203,6 @@ const handleLoadHistoryItem = async (id) => {
     setDataSourceReady(false);
   };
 
-  // handleQuestionSubmit function
   const handleQuestionSubmit = async (question) => {
     setLoading(true);
     setError(null);
@@ -251,21 +212,15 @@ const handleLoadHistoryItem = async (id) => {
       let response;
       
       if (tabValue === 0) {
-        // File upload (CSV, Excel, or SQLite file)
         if (!selectedFile) throw new Error('Please select a file first');
         response = await uploadFile(selectedFile, question);
         setPreview(response.preview);
         setResults(response.analysis_results);
         
       } else if (tabValue === 1) {
-        // Database connection
         if (!dbConfig) throw new Error('Please configure database connection first');
         
-        // Check if this is a SQLite connection (file upload via database form)
         if (dbConfig.db_type === 'sqlite' && dbConfig.sqlite_file) {
-          console.log("📤 SQLite file upload detected, using upload-sqlite endpoint");
-          
-          // Use the file upload approach for SQLite
           const formData = new FormData();
           formData.append('file', dbConfig.sqlite_file);
           formData.append('question', question);
@@ -274,9 +229,7 @@ const handleLoadHistoryItem = async (id) => {
           const token = localStorage.getItem('token');
           const apiResponse = await fetch('http://localhost:8000/api/v1/analysis/upload-sqlite', {
             method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`
-            },
+            headers: { 'Authorization': `Bearer ${token}` },
             body: formData
           });
           
@@ -289,15 +242,12 @@ const handleLoadHistoryItem = async (id) => {
           setPreview(response.preview);
           setResults(response.analysis_results);
         } else {
-          // Regular PostgreSQL/MySQL database connection
-          console.log("💾 Regular database connection");
           response = await analyzeDatabase(question, dbConfig);
           setPreview(response.preview);
           setResults(response.analysis_results);
         }
         
       } else if (tabValue === 2) {
-        // Google Sheets
         if (!sheetsConfig) throw new Error('Please configure Google Sheets connection first');
         response = await analyzeGoogleSheets(question, sheetsConfig);
         setPreview(response.preview);
@@ -332,7 +282,7 @@ const handleLoadHistoryItem = async (id) => {
           
           {isAuthenticated ? (
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <IconButton color="inherit" onClick={() => setHistoryOpen(true)} sx={{ mr: 1 }}>
+              <IconButton color="inherit" onClick={handleHistoryOpen} sx={{ mr: 1 }}>
                 <Badge color="secondary" variant="dot" invisible={false}>
                   <HistoryIcon />
                 </Badge>
@@ -361,7 +311,7 @@ const handleLoadHistoryItem = async (id) => {
               </Menu>
             </Box>
           ) : (
-            <Button color="inherit" onClick={() => setLoginOpen(true)}>
+            <Button color="inherit" href="/login">
               Login
             </Button>
           )}
@@ -388,7 +338,7 @@ const handleLoadHistoryItem = async (id) => {
           ) : (
             <GoogleSheetsConnectionForm
               onConnect={handleGoogleSheetsConnect}
-              onTestConnection={handleTestGoogleSheetsConnection}
+              onTestConnection={testGoogleSheetsConnection}
               onClearResults={handleClearResults}
               loading={loading}
             />
@@ -431,18 +381,12 @@ const handleLoadHistoryItem = async (id) => {
         </Box>
       </Container>
 
-      {/* Login Modal - for in-app login */}
-      <Login open={loginOpen} onClose={() => setLoginOpen(false)} />
-      
-      {/* History Drawer */}
       <HistoryDrawer open={historyOpen} onClose={handleHistoryClose} onLoadAnalysis={handleLoadHistoryItem} />
       
-      {/* Email Success Snackbar */}
       <Snackbar open={emailSent} autoHideDuration={3000} onClose={() => setEmailSent(false)}>
         <Alert severity="success">Results sent to your email!</Alert>
       </Snackbar>
       
-      {/* Error Snackbar */}
       <Snackbar open={openSnackbar} autoHideDuration={6000} onClose={handleCloseSnackbar}>
         <Alert onClose={handleCloseSnackbar} severity="error">{error}</Alert>
       </Snackbar>
@@ -456,13 +400,11 @@ function App() {
     <AuthProvider>
       <Router>
         <Routes>
-          {/* Public route - Login page (full page) */}
           <Route path="/login" element={<LoginPage />} />
-
-          {/* Public route - Email verification success page */}
+          <Route path="/register" element={<RegisterPage />} />
           <Route path="/verification-success" element={<VerificationSuccess />} />
-          
-          {/* Protected routes - everything else */}
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route
             path="/*"
             element={

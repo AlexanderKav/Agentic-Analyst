@@ -1,8 +1,8 @@
-# app/api/v1/models/user.py
+# app/api/v1/models/user.py - Add these fields
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, LargeBinary
 from sqlalchemy.orm import relationship
 from datetime import datetime, timedelta 
-from app.core.database import Base  # Import Base from database.py
+from app.core.database import Base
 from app.core.encryption import get_db_encryption
 from passlib.context import CryptContext
 import secrets
@@ -13,14 +13,16 @@ class User(Base):
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
-    
-    # Non-encrypted fields (searchable)
     username = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     
-    # Encrypted fields - store sensitive data encrypted
+    # Encrypted fields
     email_encrypted = Column(LargeBinary, nullable=True)
     full_name_encrypted = Column(LargeBinary, nullable=True)
+    
+    # Password reset fields - ADD THESE
+    reset_token = Column(String, nullable=True)
+    reset_token_expires = Column(DateTime, nullable=True)
     
     # Metadata
     is_active = Column(Boolean, default=True)
@@ -31,7 +33,6 @@ class User(Base):
     verified_at = Column(DateTime, nullable=True)
     is_admin = Column(Boolean, default=False)
     
-    # Relationships
     analyses = relationship("AnalysisHistory", back_populates="user", cascade="all, delete-orphan")
     
     @property
@@ -85,3 +86,17 @@ class User(Base):
         self.verified_at = datetime.utcnow()
         self.verification_token = None
         self.verification_token_expires = None
+    
+    # Password reset methods - ADD THESE
+    def generate_reset_token(self):
+        """Generate a password reset token"""
+        self.reset_token = secrets.token_urlsafe(32)
+        self.reset_token_expires = datetime.utcnow() + timedelta(hours=24)
+        return self.reset_token
+    
+    def verify_reset_token(self, token):
+        """Verify reset token is valid"""
+        if not self.reset_token or not self.reset_token_expires:
+            return False
+        return (self.reset_token == token and 
+                datetime.utcnow() < self.reset_token_expires)

@@ -56,6 +56,13 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(..., min_length=8)
+
 # Helper functions
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -309,3 +316,80 @@ async def delete_unverified_user(email: str, db: Session = Depends(get_db)):
     db.commit()
     
     return {"message": f"Unverified user {email} deleted"}
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """Request password reset email"""
+    
+    # Find user by email (need to decrypt since email is encrypted)
+    users = db.query(User).all()
+    user = None
+    for u in users:
+        if u.email == request.email:
+            user = u
+            break
+    
+    # Always return the same message for security (don't reveal if user exists)
+    if not user:
+        return {"message": "If your email is registered, you'll receive a reset link"}
+    
+    # Generate reset token
+    token = user.generate_reset_token()
+    db.commit()
+    
+    # Send email in background
+    email_service = EmailService()
+    background_tasks.add_task(
+        email_service.send_password_reset_email,
+        user.email,
+        user.username,
+        token
+    )
+    
+    print(f"📧 Password reset email queued for {user.email}")
+    
+    return {"message": "If your email is registered, you'll receive a reset link"}
+
+
+@router.post("/reset-password")
+async def reset_password(
+    request: ResetPasswordRequest,
+    db: Session = Depends(get_db)
+):
+    """Reset password using token"""
+    
+    # Find user by reset token
+    user = db.query(User).filter(User.reset_token == request.token).first()
+    
+    if not user or not user.verify_reset_token(request.token):
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    
+    # Update password
+    user.set_password(request.new_password)
+    user.reset_token = None
+    user.reset_token_expires = None
+    db.commit()
+    
+    print(f"✅ Password reset for user: {user.username}")
+    
+    return {"message": "Password reset successfully"}
+
+
+@router.get("/reset-password/verify")
+async def verify_reset_token(
+    token: str,
+    db: Session = Depends(get_db)
+):
+    """Verify if reset token is valid (without resetting)"""
+    
+    user = db.query(User).filter(User.reset_token == token).first()
+    
+    if not user or not user.verify_reset_token(token):
+        return {"valid": False, "message": "Invalid or expired token"}
+    
+    return {"valid": True, "message": "Token is valid"}

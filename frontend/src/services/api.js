@@ -179,3 +179,24 @@ export const uploadSQLiteFile = async (file, question, table) => {
   });
   return response.data;
 };
+
+// Forgot Password
+export const forgotPassword = async (email) => {
+  const response = await api.post('/auth/forgot-password', { email });
+  return response.data;
+};
+
+// Reset Password
+export const resetPassword = async (token, new_password) => {
+  const response = await api.post('/auth/reset-password', { 
+    token, 
+    new_password  // Make sure this matches the backend field name
+  });
+  return response.data;
+};
+
+// Verify Reset Token
+export const verifyResetToken = async (token) => {
+  const response = await api.get(`/auth/reset-password/verify?token=${token}`);
+  return response.data;
+};

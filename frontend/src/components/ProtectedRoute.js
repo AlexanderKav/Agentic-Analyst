@@ -1,27 +1,26 @@
+// frontend/src/components/ProtectedRoute.js
+import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import LoadingSpinner from './LoadingSpinner';
-import VerificationPending from './VerificationPending';
 
 const ProtectedRoute = ({ children }) => {
-  const { user, isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, authChecked } = useAuth();
   
-  // Show spinner while checking authentication
-  if (loading) {
-    return <LoadingSpinner message="Checking authentication..." />;
+  console.log('🛡️ ProtectedRoute: Checking auth');
+  console.log('   isAuthenticated:', isAuthenticated);
+  console.log('   loading:', loading);
+  console.log('   authChecked:', authChecked);
+  
+  if (loading || !authChecked) {
+    return <div>Loading...</div>;
   }
   
-  // Redirect to login if not authenticated
   if (!isAuthenticated) {
+    console.log('🛡️ ProtectedRoute: Not authenticated, redirecting to login');
     return <Navigate to="/login" replace />;
   }
   
-  // If authenticated but email not verified, show verification page
-  if (user && !user.is_verified) {
-    return <VerificationPending />;
-  }
-  
-  // Render children if authenticated and verified
+  console.log('🛡️ ProtectedRoute: Authenticated, rendering children');
   return children;
 };
 

@@ -1,3 +1,4 @@
+// frontend/src/components/Login.js - If this file exists and is used
 import React, { useState } from 'react';
 import {
   Dialog,
@@ -5,142 +6,131 @@ import {
   DialogContent,
   TextField,
   Button,
+  Alert,
   Box,
   Typography,
-  Alert,
-  Tab,
-  Tabs,
-  IconButton,
+  Link,
   CircularProgress
 } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
+import { useNavigate } from 'react-router-dom';
+import { login as apiLogin } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
 const Login = ({ open, onClose }) => {
-  const [tab, setTab] = useState(0);
-  const [formData, setFormData] = useState({
-    username: '',
-    password: '',
-    email: '',
-    full_name: ''
-  });
+  const navigate = useNavigate();
+  const { login: authLogin } = useAuth(); // Remove isAuthenticated if not used
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  
-  const { login, register } = useAuth();
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
+  // Debug: Log when login modal opens
+  console.log('Login modal open:', open);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
+    console.log('🔐 Login: Attempting login for:', username);
+
     try {
-      if (tab === 0) {
-        await login(formData.username, formData.password);
-      } else {
-        await register(formData);
-      }
+      const response = await apiLogin(username, password);
+      
+      console.log('✅ Login: API response received');
+      console.log('   User:', response.user?.username);
+      console.log('   Token exists:', !!response.access_token);
+      
+      // Call auth context login
+      authLogin(response.user, response.access_token);
+      
+      console.log('✅ Login: Auth context updated, closing modal');
+      
+      // Close modal
       onClose();
-      // Reset form
-      setFormData({
-        username: '',
-        password: '',
-        email: '',
-        full_name: ''
-      });
+      
     } catch (err) {
-      setError(err.response?.data?.detail || 'Authentication failed');
+      console.error('❌ Login error:', err);
+      setError(err.response?.data?.detail || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleTabChange = (event, newValue) => {
-    setTab(newValue);
-    setError('');
+  const handleForgotPassword = () => {
+    onClose();
+    navigate('/forgot-password');
+  };
+
+  const handleRegister = () => {
+    onClose();
+    navigate('/register');
   };
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>
-        <Box display="flex" alignItems="center" justifyContent="space-between">
-          <Typography variant="h6">Welcome to Agentic Analyst</Typography>
-          <IconButton onClick={onClose} size="small">
-            <CloseIcon />
-          </IconButton>
-        </Box>
-        <Tabs value={tab} onChange={handleTabChange} sx={{ mt: 2 }} centered>
-          <Tab label="Login" />
-          <Tab label="Register" />
-        </Tabs>
-      </DialogTitle>
+      <DialogTitle>Login to Agentic Analyst</DialogTitle>
       <DialogContent>
-        <Box component="form" onSubmit={handleSubmit} sx={{ mt: 2 }}>
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-          
+        <form onSubmit={handleSubmit}>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
           <TextField
             fullWidth
             label="Username"
-            name="username"
-            value={formData.username}
-            onChange={handleChange}
-            required
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
             margin="normal"
+            required
             autoFocus
-            disabled={loading}
           />
-          
-          {tab === 1 && (
-            <>
-              <TextField
-                fullWidth
-                label="Email"
-                name="email"
-                type="email"
-                value={formData.email}
-                onChange={handleChange}
-                required
-                margin="normal"
-                disabled={loading}
-              />
-              <TextField
-                fullWidth
-                label="Full Name"
-                name="full_name"
-                value={formData.full_name}
-                onChange={handleChange}
-                margin="normal"
-                disabled={loading}
-              />
-            </>
-          )}
-          
           <TextField
             fullWidth
-            label="Password"
-            name="password"
             type="password"
-            value={formData.password}
-            onChange={handleChange}
-            required
+            label="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
             margin="normal"
-            disabled={loading}
+            required
           />
+          
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1, mb: 2 }}>
+            <Link
+              component="button"
+              variant="body2"
+              onClick={handleForgotPassword}
+              sx={{ cursor: 'pointer' }}
+            >
+              Forgot password?
+            </Link>
+          </Box>
           
           <Button
             type="submit"
             fullWidth
             variant="contained"
             disabled={loading}
-            sx={{ mt: 3, mb: 2 }}
+            sx={{ mt: 1 }}
           >
-            {loading ? <CircularProgress size={24} /> : (tab === 0 ? 'Login' : 'Register')}
+            {loading ? <CircularProgress size={24} /> : 'Login'}
           </Button>
-        </Box>
+          
+          <Box sx={{ mt: 2, textAlign: 'center' }}>
+            <Typography variant="body2" color="textSecondary">
+              Don't have an account?{' '}
+              <Link
+                component="button"
+                variant="body2"
+                onClick={handleRegister}
+                sx={{ cursor: 'pointer' }}
+              >
+                Sign up
+              </Link>
+            </Typography>
+          </Box>
+        </form>
       </DialogContent>
     </Dialog>
   );

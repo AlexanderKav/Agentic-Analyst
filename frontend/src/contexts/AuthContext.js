@@ -1,94 +1,90 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import axios from 'axios';
-import { login as apiLogin, register as apiRegister, getCurrentUser } from '../services/api';
+// frontend/src/contexts/AuthContext.js
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import { getCurrentUser } from '../services/api';
 
-const AuthContext = createContext(null);
+const AuthContext = createContext();
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [authChecked, setAuthChecked] = useState(false);
 
-  useEffect(() => {
+  const checkAuth = useCallback(async () => {
     const token = localStorage.getItem('token');
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      fetchUser();
-    } else {
-      setLoading(false);
-    }
-
-    // Listen for verification success event
-    const handleVerification = () => {
-      fetchUser();
-    };
-
-    window.addEventListener('user-verified', handleVerification);
+    console.log('🔐 AuthProvider: Checking auth, token exists:', !!token);
     
-    return () => {
-      window.removeEventListener('user-verified', handleVerification);
-    };
+    if (token) {
+      try {
+        const userData = await getCurrentUser();
+        console.log('✅ AuthProvider: User loaded:', userData?.username);
+        setUser(userData);
+      } catch (error) {
+        console.error('❌ AuthProvider: Failed to load user:', error);
+        localStorage.removeItem('token');
+        setUser(null);
+      }
+    } else {
+      console.log('🔐 AuthProvider: No token found');
+      setUser(null);
+    }
+    setLoading(false);
+    setAuthChecked(true);
   }, []);
 
-  const fetchUser = async () => {
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  const login = useCallback((userData, token) => {
+    console.log('🔐 AuthProvider.login called');
+    console.log('   User:', userData?.username);
+    console.log('   Token exists:', !!token);
+    
+    localStorage.setItem('token', token);
+    setUser(userData);
+    
+    // Force a small delay to ensure state update propagates
+    setTimeout(() => {
+      console.log('✅ AuthProvider: State updated, user set to:', userData?.username);
+    }, 0);
+  }, []);
+
+  const logout = useCallback(() => {
+    console.log('🔐 AuthProvider.logout called');
+    localStorage.removeItem('token');
+    setUser(null);
+  }, []);
+
+  const refreshUser = useCallback(async () => {
     try {
       const userData = await getCurrentUser();
       setUser(userData);
     } catch (error) {
-      console.error('Failed to fetch user:', error);
-      // If token exists but fetch fails, try unverified endpoint
-      if (localStorage.getItem('token')) {
-        try {
-          const unverifiedData = await axios.get('http://localhost:8000/api/v1/auth/me/unverified');
-          setUser(unverifiedData.data);
-        } catch (e) {
-          logout();
-        }
-      } else {
-        logout();
-      }
-    } finally {
-      setLoading(false);
+      console.error('Failed to refresh user:', error);
     }
-  };
-
-  const login = async (username, password) => {
-    const data = await apiLogin(username, password);
-    const { access_token, user } = data;
-    
-    localStorage.setItem('token', access_token);
-    axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-    setUser(user);
-    
-    return user;
-  };
-
-  const register = async (userData) => {
-    const data = await apiRegister(userData);
-    return data;
-  };
-
-  const logout = () => {
-    localStorage.removeItem('token');
-    delete axios.defaults.headers.common['Authorization'];
-    setUser(null);
-  };
-
-  // Manual set user function (for verification)
-  const setVerifiedUser = (userData) => {
-    setUser(userData);
-  };
+  }, []);
 
   const value = {
     user,
     loading,
     login,
-    register,
     logout,
-    setVerifiedUser,
-    isAuthenticated: !!user
+    refreshUser,
+    isAuthenticated: !!user,
+    authChecked
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
 };

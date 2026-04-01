@@ -9,17 +9,21 @@ import {
   ListItemText,
   ListItemSecondaryAction,
   IconButton,
-  Divider,
+  // Divider removed - not used
   CircularProgress,
   Alert,
   Pagination,
-  Chip
+  Chip,
+  Paper,
+  useTheme,
+  alpha
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import VisibilityIcon from '@mui/icons-material/Visibility';
+// VisibilityIcon removed - not used
 import { getAnalysisHistory, deleteAnalysis } from '../services/api';
 
 const HistoryDrawer = ({ open, onClose, onLoadAnalysis }) => {
+  const theme = useTheme();
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -37,19 +41,15 @@ const HistoryDrawer = ({ open, onClose, onLoadAnalysis }) => {
       
       console.log("History response:", response);
       
-      // Handle both old and new response formats
       if (Array.isArray(response)) {
-        // Old format: direct array
         setHistory(response);
         setTotalItems(response.length);
         setTotalPages(Math.ceil(response.length / itemsPerPage));
       } else if (response && response.items && Array.isArray(response.items)) {
-        // New format: paginated object
         setHistory(response.items);
         setTotalItems(response.total || response.items.length);
         setTotalPages(Math.ceil((response.total || response.items.length) / itemsPerPage));
       } else {
-        // Fallback
         setHistory([]);
         setTotalItems(0);
         setTotalPages(1);
@@ -73,7 +73,6 @@ const HistoryDrawer = ({ open, onClose, onLoadAnalysis }) => {
     if (window.confirm('Are you sure you want to delete this analysis?')) {
       try {
         await deleteAnalysis(id);
-        // Refresh current page
         loadHistory(page);
       } catch (err) {
         setError('Failed to delete analysis');
@@ -99,107 +98,174 @@ const HistoryDrawer = ({ open, onClose, onLoadAnalysis }) => {
     }
   };
 
+  const HistoryItemPrimary = ({ item }) => (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+      <Box component="span" sx={{ fontSize: '1.2rem' }}>{getTypeIcon(item.type)}</Box>
+      <Typography 
+        variant="body2" 
+        component="span" 
+        sx={{ fontWeight: 'bold', flex: 1 }}
+      >
+        {item.question.length > 50 
+          ? item.question.substring(0, 50) + '...' 
+          : item.question}
+      </Typography>
+    </Box>
+  );
+
+  const HistoryItemSecondary = ({ item }) => (
+    <Box sx={{ mt: 0.5, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+      <Typography 
+        variant="caption" 
+        component="span" 
+        color="textSecondary"
+      >
+        {formatDate(item.created_at)}
+      </Typography>
+      {item.summary_metrics && item.summary_metrics.total_revenue && (
+        <Chip 
+          label={`$${item.summary_metrics.total_revenue.toLocaleString()}`}
+          size="small"
+          sx={{ height: 20, fontSize: '0.7rem' }}
+        />
+      )}
+      {item.insight_count > 0 && (
+        <Chip 
+          label={`${item.insight_count} insights`}
+          size="small"
+          sx={{ height: 20, fontSize: '0.7rem' }}
+        />
+      )}
+    </Box>
+  );
+
   return (
-    <Drawer anchor="right" open={open} onClose={onClose}>
-      <Box sx={{ width: 400, p: 2 }}>
-        <Typography variant="h6" gutterBottom>
-          Analysis History
+    <Drawer 
+      anchor="right" 
+      open={open} 
+      onClose={onClose}
+      PaperProps={{
+        sx: {
+          width: 420,
+          backgroundColor: theme.palette.background.default,
+        }
+      }}
+    >
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ 
+          p: 2, 
+          borderBottom: `1px solid ${theme.palette.divider}`,
+          bgcolor: theme.palette.background.paper,
+          position: 'sticky',
+          top: 0,
+          zIndex: 1
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+            <Typography variant="h6" component="h2">
+              Analysis History
+            </Typography>
+            <IconButton onClick={onClose} size="small">
+              <DeleteIcon />
+            </IconButton>
+          </Box>
           {totalItems > 0 && (
             <Chip 
-              label={`${totalItems} items`} 
+              label={`${totalItems} item${totalItems !== 1 ? 's' : ''}`} 
               size="small" 
-              sx={{ ml: 1 }}
+              variant="outlined"
             />
           )}
-        </Typography>
+        </Box>
         
-        <Divider sx={{ mb: 2 }} />
-        
-        {loading && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-            <CircularProgress />
-          </Box>
-        )}
-        
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
-        
-        {!loading && history.length === 0 && !error && (
-          <Typography color="textSecondary" sx={{ textAlign: 'center', p: 3 }}>
-            No analysis history yet. Upload a file or connect to a database to get started.
-          </Typography>
-        )}
-        
-        <List>
-          {history.map((item) => (
-            <ListItem
-              key={item.id}
-              button
-              onClick={() => onLoadAnalysis(item.id)}
-              sx={{
-                border: '1px solid #e0e0e0',
-                borderRadius: 1,
-                mb: 1,
-                '&:hover': { bgcolor: '#f5f5f5' }
+        <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
+          {loading && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+              <CircularProgress />
+            </Box>
+          )}
+          
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
+          
+          {!loading && history.length === 0 && !error && (
+            <Paper 
+              variant="outlined" 
+              sx={{ 
+                p: 3, 
+                textAlign: 'center',
+                bgcolor: alpha(theme.palette.primary.main, 0.02)
               }}
             >
-              <ListItemText
-                primary={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <span>{getTypeIcon(item.type)}</span>
-                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                      {item.question.length > 50 
-                        ? item.question.substring(0, 50) + '...' 
-                        : item.question}
-                    </Typography>
-                  </Box>
-                }
-                secondary={
-                  <Box sx={{ mt: 0.5 }}>
-                    <Typography variant="caption" color="textSecondary">
-                      {formatDate(item.created_at)}
-                    </Typography>
-                    {item.summary_metrics && item.summary_metrics.total_revenue && (
-                      <Chip 
-                        label={`$${item.summary_metrics.total_revenue.toLocaleString()}`}
-                        size="small"
-                        sx={{ ml: 1, height: 20, fontSize: '0.7rem' }}
-                      />
-                    )}
-                    {item.insight_count > 0 && (
-                      <Chip 
-                        label={`${item.insight_count} insights`}
-                        size="small"
-                        sx={{ ml: 1, height: 20, fontSize: '0.7rem' }}
-                      />
-                    )}
-                  </Box>
-                }
-              />
-              <ListItemSecondaryAction>
-                <IconButton 
-                  edge="end" 
-                  onClick={(e) => handleDelete(item.id, e)}
-                  size="small"
-                >
-                  <DeleteIcon />
-                </IconButton>
-              </ListItemSecondaryAction>
-            </ListItem>
-          ))}
-        </List>
+              <Typography color="textSecondary">
+                No analysis history yet. Upload a file or connect to a database to get started.
+              </Typography>
+            </Paper>
+          )}
+          
+          <List sx={{ p: 0 }}>
+            {history.map((item) => (
+              <ListItem
+                key={item.id}
+                onClick={() => onLoadAnalysis(item.id)}
+                sx={{
+                  border: `1px solid ${theme.palette.divider}`,
+                  borderRadius: 1,
+                  mb: 1,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  '&:hover': {
+                    bgcolor: alpha(theme.palette.primary.main, 0.04),
+                    transform: 'translateX(2px)'
+                  },
+                  '&:last-child': {
+                    mb: 0
+                  }
+                }}
+              >
+                <ListItemText
+                  disableTypography
+                  primary={<HistoryItemPrimary item={item} />}
+                  secondary={<HistoryItemSecondary item={item} />}
+                  sx={{ my: 1 }}
+                />
+                <ListItemSecondaryAction>
+                  <IconButton 
+                    edge="end" 
+                    onClick={(e) => handleDelete(item.id, e)}
+                    size="small"
+                    sx={{
+                      '&:hover': {
+                        color: theme.palette.error.main
+                      }
+                    }}
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </ListItemSecondaryAction>
+              </ListItem>
+            ))}
+          </List>
+        </Box>
         
         {totalPages > 1 && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+          <Box sx={{ 
+            p: 2, 
+            borderTop: `1px solid ${theme.palette.divider}`,
+            display: 'flex',
+            justifyContent: 'center',
+            bgcolor: theme.palette.background.paper
+          }}>
             <Pagination 
               count={totalPages} 
               page={page} 
               onChange={handlePageChange}
               color="primary"
               size="small"
+              showFirstButton
+              showLastButton
             />
           </Box>
         )}

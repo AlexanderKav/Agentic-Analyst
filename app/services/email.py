@@ -395,3 +395,119 @@ class EmailService:
             import traceback
             traceback.print_exc()
             return False, error_msg
+    # app/services/email.py
+
+    # Add this method to your EmailService class
+
+    # app/services/email.py - Update the send_password_reset_email method
+    async def send_password_reset_email(self, to_email: str, username: str, token: str):
+        """Send password reset email"""
+        reset_link = f"http://localhost:3000/reset-password?token={token}"
+        
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {{
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    line-height: 1.6;
+                    color: #333;
+                    margin: 0;
+                    padding: 0;
+                    background-color: #f4f4f4;
+                }}
+                .container {{
+                    max-width: 600px;
+                    margin: 20px auto;
+                    background: white;
+                    border-radius: 10px;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                    overflow: hidden;
+                }}
+                .header {{
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 40px 30px;
+                    text-align: center;
+                }}
+                .header h1 {{
+                    margin: 0;
+                    font-size: 28px;
+                    font-weight: 600;
+                }}
+                .content {{
+                    padding: 40px 30px;
+                    background: white;
+                }}
+                .button {{
+                    display: inline-block;
+                    padding: 14px 30px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 50px;
+                    font-weight: 600;
+                    margin: 20px 0;
+                    transition: transform 0.2s;
+                }}
+                .button:hover {{
+                    transform: translateY(-2px);
+                    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+                }}
+                .footer {{
+                    background: #f8f9fa;
+                    padding: 20px 30px;
+                    text-align: center;
+                    color: #666;
+                    font-size: 14px;
+                    border-top: 1px solid #eee;
+                }}
+                .note {{
+                    background: #fff3cd;
+                    border-left: 4px solid #ffc107;
+                    padding: 15px;
+                    margin: 20px 0;
+                    border-radius: 5px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🔐 Password Reset</h1>
+                </div>
+                
+                <div class="content">
+                    <h2>Hi {username},</h2>
+                    
+                    <p>We received a request to reset your password. Click the button below to create a new password:</p>
+                    
+                    <div style="text-align: center;">
+                        <a href="{reset_link}" class="button">Reset Password</a>
+                    </div>
+                    
+                    <div class="note">
+                        <strong>🔒 Security Note:</strong> This link will expire in 24 hours. If you didn't request this, you can safely ignore this email.
+                    </div>
+                    
+                    <p style="margin-top: 30px;">
+                        Or copy this link to your browser:<br>
+                        <small style="color: #667eea; word-break: break-all;">{reset_link}</small>
+                    </p>
+                </div>
+                
+                <div class="footer">
+                    <p>© 2024 Agentic Analyst. All rights reserved.</p>
+                    <p style="margin-top: 10px; font-size: 12px;">
+                        This is an automated message, please do not reply to this email.
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return await self._send_email(to_email, "Reset Your Password - Agentic Analyst", html)

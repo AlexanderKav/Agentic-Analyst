@@ -1,159 +1,135 @@
+// frontend/src/components/LoginPage.js
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import {
   Container,
   Paper,
-  Typography,
   TextField,
   Button,
+  Typography,
   Box,
   Alert,
-  Tab,
-  Tabs,
-  CircularProgress
+  CircularProgress,
+  Link
 } from '@mui/material';
+import { login as apiLogin } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import axios from 'axios';
 
 const LoginPage = () => {
   const navigate = useNavigate();
-  const [tab, setTab] = useState(0);
+  const { login: authLogin } = useAuth();
   const [formData, setFormData] = useState({
     username: '',
-    password: '',
-    email: '',
-    full_name: ''
+    password: ''
   });
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setSuccess('');
     setLoading(true);
 
     try {
-      if (tab === 0) {
-        // Login
-        await login(formData.username, formData.password);
-        navigate('/');
-      } else {
-        // Register
-        const response = await axios.post('http://localhost:8000/api/v1/auth/register', {
-          email: formData.email,
-          username: formData.username,
-          password: formData.password,
-          full_name: formData.full_name
-        });
-        
-        setSuccess(response.data.message);
-        // Clear form
-        setFormData({
-          username: '',
-          password: '',
-          email: '',
-          full_name: ''
-        });
-        // Switch to login tab after 3 seconds
-        setTimeout(() => {
-          setTab(0);
-        }, 3000);
-      }
+      const response = await apiLogin(formData.username, formData.password);
+      
+      // Call auth context login
+      authLogin(response.user, response.access_token);
+      
+      // Navigate to dashboard
+      navigate('/');
+      
     } catch (err) {
-      setError(err.response?.data?.detail || 'Authentication failed');
+      console.error('Login error:', err);
+      setError(err.response?.data?.detail || 'Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleTabChange = (event, newValue) => {
-    setTab(newValue);
-    setError('');
-    setSuccess('');
-  };
-
   return (
-    <Container maxWidth="sm" sx={{ mt: 8 }}>
-      <Paper sx={{ p: 4 }}>
-        <Typography variant="h4" gutterBottom align="center" sx={{ mb: 3 }}>
-          🤖 Agentic Analyst
-        </Typography>
-        
-        <Tabs value={tab} onChange={handleTabChange} sx={{ mb: 3 }} centered>
-          <Tab label="Login" />
-          <Tab label="Register" />
-        </Tabs>
-        
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-        
-        <form onSubmit={handleSubmit}>
-          <TextField
-            fullWidth
-            label="Username"
-            name="username"
-            value={formData.username}
-            onChange={handleChange}
-            required
-            margin="normal"
-            disabled={loading}
-          />
-          
-          {tab === 1 && (
-            <>
-              <TextField
-                fullWidth
-                label="Email"
-                name="email"
-                type="email"
-                value={formData.email}
-                onChange={handleChange}
-                required
-                margin="normal"
-                disabled={loading}
-              />
-              <TextField
-                fullWidth
-                label="Full Name"
-                name="full_name"
-                value={formData.full_name}
-                onChange={handleChange}
-                margin="normal"
-                disabled={loading}
-              />
-            </>
+    <Container maxWidth="sm">
+      <Box sx={{ mt: 8, mb: 4 }}>
+        <Paper elevation={3} sx={{ p: 4 }}>
+          <Typography variant="h5" component="h1" gutterBottom align="center">
+            🤖 Agentic Analyst
+          </Typography>
+          <Typography variant="body2" color="textSecondary" align="center" sx={{ mb: 3 }}>
+            Login to your account
+          </Typography>
+
+          {error && (
+            <Alert severity="error" sx={{ mb: 3 }}>
+              {error}
+            </Alert>
           )}
-          
-          <TextField
-            fullWidth
-            label="Password"
-            name="password"
-            type="password"
-            value={formData.password}
-            onChange={handleChange}
-            required
-            margin="normal"
-            disabled={loading}
-          />
-          
-          <Button
-            type="submit"
-            fullWidth
-            variant="contained"
-            disabled={loading}
-            sx={{ mt: 3 }}
-          >
-            {loading ? <CircularProgress size={24} /> : (tab === 0 ? 'Login' : 'Register')}
-          </Button>
-        </form>
-      </Paper>
+
+          <form onSubmit={handleSubmit}>
+            <TextField
+              fullWidth
+              label="Username"
+              name="username"
+              value={formData.username}
+              onChange={handleChange}
+              margin="normal"
+              required
+              autoFocus
+            />
+            <TextField
+              fullWidth
+              type="password"
+              label="Password"
+              name="password"
+              value={formData.password}
+              onChange={handleChange}
+              margin="normal"
+              required
+            />
+            
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1, mb: 2 }}>
+              <Link
+                component={RouterLink}
+                to="/forgot-password"
+                variant="body2"
+                sx={{ cursor: 'pointer' }}
+              >
+                Forgot password?
+              </Link>
+            </Box>
+            
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              disabled={loading}
+              sx={{ mt: 2 }}
+            >
+              {loading ? <CircularProgress size={24} /> : 'Login'}
+            </Button>
+            
+            <Box sx={{ mt: 2, textAlign: 'center' }}>
+              <Typography variant="body2" color="textSecondary">
+                Don't have an account?{' '}
+                <Link
+                  component={RouterLink}
+                  to="/register"
+                  variant="body2"
+                  sx={{ cursor: 'pointer' }}
+                >
+                  Sign up
+                </Link>
+              </Typography>
+            </Box>
+          </form>
+        </Paper>
+      </Box>
     </Container>
   );
 };
