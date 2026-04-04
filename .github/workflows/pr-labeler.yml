@@ -1,4 +1,5 @@
 name: PR Labeler
+
 on:
   pull_request:
     types: [opened]
@@ -7,6 +8,6 @@ jobs:
   labeler:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/labeler@v4
+      - uses: actions/labeler@v5
         with:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"

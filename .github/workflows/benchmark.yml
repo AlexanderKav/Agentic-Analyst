@@ -44,35 +44,6 @@ jobs:
         fi
       continue-on-error: false
     
-    - name: Compare with baseline
-      run: |
-        if [ -f "scripts/compare_benchmarks.py" ]; then
-          python scripts/compare_benchmarks.py benchmark-results/output.json
-        else
-          echo "Creating comparison script..."
-          cat > scripts/compare_benchmarks.py << 'EOF'
-        import json
-        import sys
-        
-        try:
-            with open(sys.argv[1], 'r') as f:
-                data = json.load(f)
-            
-            benchmarks = data.get('benchmarks', [])
-            print(f"\n📊 Benchmark Summary:")
-            print(f"   Total benchmarks: {len(benchmarks)}")
-            
-            for bench in benchmarks[:10]:  # Show top 10
-                name = bench.get('name', 'unknown')
-                stats = bench.get('stats', {})
-                mean = stats.get('mean', 0)
-                print(f"   • {name}: {mean:.4f}s")
-        except Exception as e:
-            print(f"Error comparing benchmarks: {e}")
-        EOF
-          python scripts/compare_benchmarks.py benchmark-results/output.json
-        fi
-    
     - name: Store benchmark results
       uses: actions/upload-artifact@v4
       with:
@@ -81,20 +52,3 @@ jobs:
           benchmark-results/
           .benchmarks/
         retention-days: 90
-    
-    - name: Check for performance regression
-      run: |
-        # Basic regression check - fail if any benchmark > 5 seconds
-        if [ -f "benchmark-results/output.json" ]; then
-          python -c "
-        import json
-        with open('benchmark-results/output.json') as f:
-            data = json.load(f)
-        slow_benchmarks = [b for b in data.get('benchmarks', []) 
-                          if b.get('stats', {}).get('mean', 0) > 5.0]
-        if slow_benchmarks:
-            print(f'⚠️ {len(slow_benchmarks)} slow benchmarks detected')
-            for b in slow_benchmarks:
-                print(f'   - {b[\"name\"]}: {b[\"stats\"][\"mean\"]:.2f}s')
-        "
-        fi
