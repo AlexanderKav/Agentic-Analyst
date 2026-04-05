@@ -1,4 +1,3 @@
-# app/api/v1/endpoints/analysis/utils.py
 """Shared utility functions for analysis endpoints."""
 
 import math
@@ -13,12 +12,14 @@ from fastapi import HTTPException
 # Constants
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 MAX_ROWS = 100000
+MIN_ROWS = 5  # Minimum rows required for meaningful analysis
 MAX_QUERY_LENGTH = 2000
 DANGEROUS_SQL_KEYWORDS = [
     'DROP', 'DELETE', 'TRUNCATE', 'ALTER', 'CREATE',
     'INSERT', 'UPDATE', 'MERGE', 'REPLACE', 'GRANT',
     'REVOKE', 'EXEC', 'EXECUTE'
 ]
+REQUIRED_COLUMNS = ['date', 'revenue']
 
 
 def sanitize_for_json(obj: Any) -> Any:
@@ -136,7 +137,30 @@ def validate_dataframe(df: pd.DataFrame) -> bool:
     if len(df) > MAX_ROWS:
         raise HTTPException(
             status_code=400,
-            detail=f"Too many rows. Maximum is {MAX_ROWS}"
+            detail=f"Too many rows. Maximum is {MAX_ROWS:,} rows."
+        )
+    
+    # Check minimum rows
+    if len(df) < MIN_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not enough data. Minimum {MIN_ROWS} rows required for meaningful analysis. Found {len(df)} rows."
+        )
+    
+    # Check for empty dataframe
+    if len(df) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="The dataset is empty. Please provide data with at least one row."
+        )
+
+    # Check for required columns
+    df_columns_lower = [col.lower() for col in df.columns]
+    missing_columns = [col for col in REQUIRED_COLUMNS if col not in df_columns_lower]
+    if missing_columns:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required columns: {', '.join(missing_columns)}. Your data must contain 'date' and 'revenue' columns."
         )
 
     for col in df.columns:
@@ -145,10 +169,33 @@ def validate_dataframe(df: pd.DataFrame) -> bool:
             if max_len > 10000:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Column '{col}' contains suspiciously long strings"
+                    detail=f"Column '{col}' contains suspiciously long strings (max length: {max_len:,} chars). Limit is 10,000 chars."
                 )
 
     return True
+
+
+def validate_row_count(row_count: int, context: str = "table") -> tuple[bool, str]:
+    """
+    Validate row count for analysis.
+    
+    Args:
+        row_count: Number of rows in the dataset
+        context: What type of data (table, sheet, file)
+    
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if row_count == 0:
+        return False, f"The {context} is empty. Please select a {context} that contains data."
+    
+    if row_count < MIN_ROWS:
+        return False, f"The {context} has only {row_count} rows. Minimum {MIN_ROWS} rows required for meaningful analysis."
+    
+    if row_count > MAX_ROWS:
+        return False, f"The {context} has {row_count:,} rows. Maximum allowed is {MAX_ROWS:,} rows."
+    
+    return True, ""
 
 
 def deep_clean_for_json(obj: Any) -> Any:
@@ -201,11 +248,14 @@ def convert_to_native(obj: Any) -> Any:
 __all__ = [
     'MAX_FILE_SIZE',
     'MAX_ROWS',
+    'MIN_ROWS',
     'MAX_QUERY_LENGTH',
     'DANGEROUS_SQL_KEYWORDS',
+    'REQUIRED_COLUMNS',
     'sanitize_for_json',
     'validate_database_config',
     'validate_dataframe',
+    'validate_row_count',
     'deep_clean_for_json',
     'convert_to_native',
 ]

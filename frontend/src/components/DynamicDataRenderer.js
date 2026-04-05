@@ -102,7 +102,8 @@ class DynamicDataRenderer {
           <Typography variant="body1" sx={{ lineHeight: 1.8, fontSize: '1.05rem' }}>
             {data.human_readable_summary}
           </Typography>
-          {data.confidence_score && (
+          {/* ✅ Only show confidence score if it's > 0 and not for irrelevant questions */}
+          {data.confidence_score && data.confidence_score > 0 && (
             <Typography variant="caption" sx={{ mt: 2, display: 'block', color: '#666' }}>
               Confidence score: {(data.confidence_score * 100).toFixed(0)}%
             </Typography>

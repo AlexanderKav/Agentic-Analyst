@@ -14,10 +14,12 @@ from slowapi.util import get_remote_address
 
 # Import the routers correctly
 from app.api.v1.endpoints import analysis, auth, email, monitoring
+from app.api.v1.endpoints.analysis import chart  # Add this explicit import
 from app.api.v1.models.responses import HealthResponse
 from app.services.key_rotation import get_key_rotation_service
 
 load_dotenv()
+
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
 
@@ -29,10 +31,6 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc"
 )
-
-
-app.include_router(auth.router)
-app.include_router(email.router)
 
 # Set up rate limiter
 app.state.limiter = limiter
@@ -50,6 +48,11 @@ app.add_middleware(
 # Include routers
 app.include_router(analysis.router)
 app.include_router(monitoring.router)
+app.include_router(auth.router)
+app.include_router(email.router)
+
+# Explicitly include chart router (in case it's not in analysis.router)
+app.include_router(chart.router, prefix="/api/v1/analysis", tags=["charts"])
 
 @app.on_event("startup")
 async def startup_event():

@@ -597,8 +597,6 @@ class AnalyticsAgent:
                 "error": str(e)
             }
 
-    @timer(operation='forecast_with_confidence')
-    # In the AnalyticsAgent class, update the forecast methods to accept period_label parameter
 
     @timer(operation='forecast_with_confidence')
     def forecast_with_confidence(self, steps: int = 3, confidence_level: float = 0.95, period_label: str = None) -> Dict[str, Any]:
@@ -825,7 +823,31 @@ class AnalyticsAgent:
             import traceback
             traceback.print_exc()
             return None
-
+            
+    def forecast_revenue_by_product_series(self, steps: int = 3, period_label: Optional[str] = None) -> pd.Series:
+        """
+        Forecast revenue by product and return as Series for visualization.
+        
+        Returns:
+            pandas Series with product names as index and forecast sums as values
+        """
+        result = self.forecast_revenue_by_product(steps=steps, period_label=period_label)
+        
+        if 'forecasts' in result:
+            forecasts = result['forecasts']
+        else:
+            forecasts = result
+        
+        # Build Series
+        forecast_dict = {}
+        for product, data in forecasts.items():
+            if isinstance(data, dict):
+                forecast_sum = data.get('forecast_sum')
+                if forecast_sum and forecast_sum > 0:
+                    product_name = product.replace('_', ' ').replace('Plan', ' Plan')
+                    forecast_dict[product_name] = forecast_sum
+        
+        return pd.Series(forecast_dict).sort_values(ascending=False)
     # -----------------------------
     # Quantity metrics
     # -----------------------------

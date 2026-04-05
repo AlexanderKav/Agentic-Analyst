@@ -1,4 +1,3 @@
-# app/api/v1/endpoints/analysis/file.py
 import math
 import os
 import traceback
@@ -19,9 +18,11 @@ from app.core.database import get_db
 
 from .utils import (
     MAX_FILE_SIZE,
+    MIN_ROWS,
     deep_clean_for_json,
     sanitize_for_json,
     validate_dataframe,
+    validate_row_count,
 )
 
 router = APIRouter()
@@ -175,6 +176,11 @@ async def upload_file(
                 df = pd.read_excel(temp_file_path, engine='xlrd')
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_type}")
+
+        # Validate row count
+        is_valid, error_msg = validate_row_count(len(df), "file")
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
 
         validate_dataframe(df)
 

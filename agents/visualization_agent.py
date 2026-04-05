@@ -20,14 +20,14 @@ class VisualizationAgent:
     - Time series line plots
     - Bar charts for categorical data
     - DataFrame line plots
-    - Product forecast bar charts
+    - Product forecast bar charts (from dict)
     """
 
     def __init__(self, output_dir: str = "agents/charts") -> None:
         """Initialize visualization agent with output directory."""
         self.output_dir = os.path.abspath(output_dir)
         os.makedirs(self.output_dir, exist_ok=True)
-        print("Charts will be saved to:", self.output_dir)
+        print(f"Charts will be saved to: {self.output_dir}")
 
     def __del__(self) -> None:
         """Clean up any open matplotlib figures."""
@@ -103,9 +103,10 @@ class VisualizationAgent:
         plt.tight_layout()
         filepath = os.path.join(self.output_dir, f"{name}.png")
         
-        plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        plt.savefig(filepath, dpi=100, bbox_inches='tight')
         plt.close()
         
+        print(f"💾 Chart saved: {filepath}")
         return filepath
 
     # --------------------------------------------------
@@ -132,10 +133,104 @@ class VisualizationAgent:
         
         plt.tight_layout()
         filepath = os.path.join(self.output_dir, f"{name}.png")
-        plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        plt.savefig(filepath, dpi=100, bbox_inches='tight')
         plt.close()
 
+        print(f"💾 Chart saved: {filepath}")
         return filepath
+
+    # --------------------------------------------------
+    # Forecast Dict Chart (NEW)
+    # --------------------------------------------------
+    def _plot_forecast_dict(self, forecast_data: Dict[str, Any], name: str = "product_forecast") -> Optional[str]:
+        """
+        Plot forecast data from forecast_revenue_by_product dictionary.
+        
+        Args:
+            forecast_data: Dictionary from forecast_revenue_by_product
+            name: Base name for the chart file
+        
+        Returns:
+            Path to saved chart file, or None if plotting fails
+        """
+        try:
+            # Extract forecasts and period
+            if 'forecasts' in forecast_data:
+                forecasts = forecast_data['forecasts']
+                period = forecast_data.get('period', 'Next Quarter')
+            else:
+                forecasts = forecast_data
+                period = 'Next Quarter'
+            
+            # Prepare data for plotting
+            products = []
+            forecast_values = []
+            
+            for product, data in forecasts.items():
+                if isinstance(data, dict):
+                    # Try forecast_sum first, then forecast
+                    forecast_sum = data.get('forecast_sum')
+                    if forecast_sum is None:
+                        forecast_sum = data.get('forecast')
+                        if isinstance(forecast_sum, list) and forecast_sum:
+                            forecast_sum = sum(forecast_sum)
+                    
+                    if forecast_sum and forecast_sum > 0:
+                        # Clean product name
+                        product_name = product.replace('_', ' ').replace('Plan', ' Plan')
+                        products.append(product_name)
+                        forecast_values.append(forecast_sum)
+            
+            if not products:
+                print(f"⚠️ No forecast data to plot for {name}")
+                return None
+            
+            # Sort by forecast value descending
+            sorted_data = sorted(zip(products, forecast_values), key=lambda x: x[1], reverse=True)
+            products = [x[0] for x in sorted_data]
+            forecast_values = [x[1] for x in sorted_data]
+            
+            # Create color map
+            colors = plt.cm.viridis([i / len(products) for i in range(len(products))])
+            
+            plt.figure(figsize=(12, 6))
+            bars = plt.bar(products, forecast_values, color=colors)
+            
+            # Add value labels on bars
+            for bar, value in zip(bars, forecast_values):
+                plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + (value * 0.02),
+                        f'${value:,.0f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
+            
+            # Format the period label for title
+            title_text = f"Forecasted Revenue by Product - {period}"
+            plt.title(title_text, fontsize=14, fontweight='bold')
+            plt.ylabel("Forecasted Revenue ($)", fontsize=12)
+            plt.xlabel("Product", fontsize=12)
+            plt.xticks(rotation=45, ha='right', fontsize=10)
+            plt.grid(axis='y', alpha=0.3)
+            
+            # Add note about forecast period
+            plt.figtext(0.99, 0.01, f"Forecast period: {period}", 
+                        ha='right', va='bottom', fontsize=9, style='italic', alpha=0.7)
+            
+            plt.tight_layout()
+            
+            # Create filename with period label
+            safe_name = name.lower().replace(' ', '_')
+            safe_period = period.replace(' ', '_').replace('/', '_').replace('?', '')
+            filename = f"{safe_name}_{safe_period}.png"
+            filepath = os.path.join(self.output_dir, filename)
+            plt.savefig(filepath, dpi=100, bbox_inches='tight')
+            plt.close()
+            
+            print(f"✅ Forecast chart saved: {filepath}")
+            return filepath
+            
+        except Exception as e:
+            print(f"❌ Error plotting forecast chart for {name}: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
     # --------------------------------------------------
     # Auto Visualization Engine
@@ -145,45 +240,70 @@ class VisualizationAgent:
         Generate charts from analytics agent results.
         
         Args:
-            raw_results: Dictionary of tool_name -> result (pandas Series/DataFrame)
+            raw_results: Dictionary of tool_name -> result (pandas Series/DataFrame/dict)
             
         Returns:
-            Dictionary of tool_name -> chart file path
+            Dictionary of tool_name -> chart file path (just filename, not full path)
         """
         charts = {}
 
         for tool_name, result in raw_results.items():
             try:
+                # 🔥 NEW: Handle forecast dictionary results
+                if tool_name == 'forecast_revenue_by_product' and isinstance(result, dict):
+                    chart_path = self._plot_forecast_dict(result, tool_name)
+                    if chart_path:
+                        # Store just the filename for API
+                        charts[tool_name] = os.path.basename(chart_path)
+                        print(f"✅ Chart generated for {tool_name}")
+
+                # Handle product_forecast (from planner)
+                elif tool_name == 'product_forecast' and isinstance(result, dict):
+                    chart_path = self._plot_forecast_dict(result, tool_name)
+                    if chart_path:
+                        charts[tool_name] = os.path.basename(chart_path)
+                        print(f"✅ Chart generated for {tool_name}")
+
                 # Series
-                if isinstance(result, pd.Series):
+                elif isinstance(result, pd.Series):
                     if not result.empty:
-                        chart_path = self._plot_series(result, tool_name)
-                        charts[tool_name] = chart_path
+                        full_path = self._plot_series(result, tool_name)
+                        charts[tool_name] = os.path.basename(full_path)
+                        print(f"✅ Chart generated for {tool_name}")
 
                 # DataFrame
                 elif isinstance(result, pd.DataFrame):
                     if not result.empty:
-                        chart_path = self._plot_dataframe(result, tool_name)
-                        charts[tool_name] = chart_path
+                        full_path = self._plot_dataframe(result, tool_name)
+                        charts[tool_name] = os.path.basename(full_path)
+                        print(f"✅ Chart generated for {tool_name}")
+
+                # Handle dict that looks like a forecast result
+                elif isinstance(result, dict) and 'forecasts' in result:
+                    chart_path = self._plot_forecast_dict(result, tool_name)
+                    if chart_path:
+                        charts[tool_name] = os.path.basename(chart_path)
+                        print(f"✅ Chart generated for {tool_name}")
 
             except Exception as e:
-                print(f"Visualization failed for {tool_name}: {e}")
+                print(f"⚠️ Visualization failed for {tool_name}: {e}")
 
+        print(f"📊 Total charts generated: {len(charts)}")
         return charts
     
     # --------------------------------------------------
-    # Product Forecast Chart
+    # Public method for forecast plotting
     # --------------------------------------------------
-    def plot_product_forecast(self, forecasts: Dict[str, Any], period_label: str = "Next Quarter") -> Optional[str]:
+    def plot_forecast(self, forecasts: Dict[str, Any], period_label: str = "Next Quarter") -> Optional[str]:
         """
-        Plot product-level forecasts as a grouped bar chart with dynamic period label.
+        Public method to plot product-level forecasts.
         
         Args:
             forecasts: Dictionary from forecast_revenue_by_product
             period_label: The period being forecasted (e.g., "Q1 2025", "Next Quarter")
             
         Returns:
-            Path to the saved chart file, or None if plotting fails
+            Filename of the saved chart, or None if plotting fails
         """
         try:
             # Handle nested forecast structure
@@ -199,7 +319,14 @@ class VisualizationAgent:
             
             for product, data in forecast_data.items():
                 if isinstance(data, dict):
+                    # Try forecast_sum first
                     forecast_sum = data.get("forecast_sum")
+                    if forecast_sum is None:
+                        # Try forecast list
+                        forecast_list = data.get("forecast")
+                        if isinstance(forecast_list, list) and forecast_list:
+                            forecast_sum = sum(forecast_list)
+                    
                     if forecast_sum is not None and forecast_sum > 0:
                         # Clean product name
                         product_name = product.replace('_', ' ').replace('Plan', ' Plan')
@@ -223,7 +350,7 @@ class VisualizationAgent:
             
             # Add value labels on bars
             for bar, value in zip(bars, forecast_values):
-                plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 500,
+                plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + (value * 0.02),
                         f'${value:,.0f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
             
             # Format the period label for title
@@ -242,15 +369,19 @@ class VisualizationAgent:
             
             # Create filename with period label
             safe_period = period_label.replace(' ', '_').replace('/', '_').replace('?', '')
-            filepath = os.path.join(self.output_dir, f"product_forecast_{safe_period}.png")
-            plt.savefig(filepath, dpi=300, bbox_inches='tight')
+            filename = f"product_forecast_{safe_period}.png"
+            filepath = os.path.join(self.output_dir, filename)
+            plt.savefig(filepath, dpi=100, bbox_inches='tight')
             plt.close()
             
             print(f"✅ Saved product forecast chart: {filepath}")
-            return filepath
+            return filename
             
         except Exception as e:
             print(f"❌ Error plotting product forecast: {e}")
             import traceback
             traceback.print_exc()
             return None
+
+
+__all__ = ['VisualizationAgent']

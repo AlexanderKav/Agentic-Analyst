@@ -14,6 +14,33 @@ import {
 } from '@mui/material';
 import { register } from '../services/api';
 
+// Helper function to extract error message from FastAPI response
+const getErrorMessage = (error) => {
+  if (!error.response?.data) {
+    return error.message || 'Registration failed. Please try again.';
+  }
+  
+  const detail = error.response.data.detail;
+  
+  // Array of validation errors (FastAPI format)
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail.map(err => err.msg || err.message || JSON.stringify(err)).join('; ');
+  }
+  
+  // Single error object
+  if (typeof detail === 'object' && detail !== null) {
+    if (detail.msg) return detail.msg;
+    if (detail.message) return detail.message;
+    if (detail.error) return detail.error;
+    return JSON.stringify(detail);
+  }
+  
+  // String error
+  if (typeof detail === 'string') return detail;
+  
+  return 'Registration failed. Please try again.';
+};
+
 const RegisterPage = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
@@ -51,7 +78,8 @@ const RegisterPage = () => {
       setSuccess(true);
     } catch (err) {
       console.error('Registration error:', err);
-      setError(err.response?.data?.detail || 'Registration failed. Please try again.');
+      const errorMessage = getErrorMessage(err);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

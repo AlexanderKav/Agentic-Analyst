@@ -1,4 +1,3 @@
-# app/api/v1/endpoints/analysis/google_sheets.py
 import math
 import os
 import traceback
@@ -18,44 +17,15 @@ from app.core.analysis import AnalysisOrchestrator
 from app.core.database import get_db
 from connectors.google_sheets import GoogleSheetsConnector
 
-from .utils import validate_dataframe
+from .utils import (
+    MIN_ROWS,
+    validate_dataframe,
+    validate_row_count,
+    deep_clean_for_json,
+    sanitize_for_json,
+)
 
 router = APIRouter()
-
-
-def deep_clean_for_db(obj):
-    """Recursively clean objects for database JSON serialization."""
-    if obj is None:
-        return None
-    elif isinstance(obj, (str, int, float, bool)):
-        return obj
-    elif isinstance(obj, (np.integer, np.int64, np.int32)):
-        return int(obj)
-    elif isinstance(obj, (np.floating, np.float64, np.float32)):
-        if np.isnan(obj) or np.isinf(obj):
-            return None
-        return float(obj)
-    elif isinstance(obj, (pd.Timestamp, datetime)):
-        return obj.isoformat()
-    elif isinstance(obj, dict):
-        cleaned = {}
-        for k, v in obj.items():
-            str_key = str(k) if not isinstance(k, (str, int, float, bool)) else k
-            if isinstance(str_key, int):
-                str_key = str(str_key)
-            cleaned[str_key] = deep_clean_for_db(v)
-        return cleaned
-    elif isinstance(obj, (list, tuple, set)):
-        return [deep_clean_for_db(item) for item in obj]
-    elif isinstance(obj, pd.Series):
-        return deep_clean_for_db(obj.to_dict())
-    elif isinstance(obj, pd.DataFrame):
-        return deep_clean_for_db(obj.to_dict('records'))
-    else:
-        try:
-            return str(obj)
-        except Exception:
-            return None
 
 
 @router.post("/google-sheets", response_model=FileUploadResponse)
@@ -81,20 +51,15 @@ async def analyze_google_sheets(
         connector = GoogleSheetsConnector(sheet_id, sheet_range)
         df = connector.fetch_sheet()
 
+        # Validate row count
+        is_valid, error_msg = validate_row_count(len(df), "sheet")
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
+
         validate_dataframe(df)
 
         preview_data = df.head(5).to_dict('records')
-        cleaned_preview = []
-        for row in preview_data:
-            cleaned_row = {}
-            for key, value in row.items():
-                if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-                    cleaned_row[key] = None
-                elif isinstance(value, pd.Timestamp):
-                    cleaned_row[key] = value.isoformat()
-                else:
-                    cleaned_row[key] = value
-            cleaned_preview.append(cleaned_row)
+        cleaned_preview = [sanitize_for_json(row) for row in preview_data]
 
         results, exec_time = await orchestrator.analyze_dataframe(df, sheets_request.question or "")
 
@@ -117,7 +82,7 @@ async def analyze_google_sheets(
             "is_generic_overview": results.get("is_generic_overview", False)
         }
 
-        cleaned_results = deep_clean_for_db(analysis_results)
+        cleaned_results = deep_clean_for_json(analysis_results)
 
         data_source = {
             "sheet_id": sheet_id[:8] + "...",
@@ -125,7 +90,7 @@ async def analyze_google_sheets(
             "rows": len(df),
             "columns": list(df.columns)
         }
-        cleaned_data_source = deep_clean_for_db(data_source)
+        cleaned_data_source = deep_clean_for_json(data_source)
 
         history = AnalysisHistory(
             user_id=current_user.id,
@@ -137,7 +102,7 @@ async def analyze_google_sheets(
         db.add(history)
         db.commit()
 
-        final_results = deep_clean_for_db(analysis_results)
+        final_results = deep_clean_for_json(analysis_results)
 
         return FileUploadResponse(
             filename=f"google_sheet_{sheet_id[:8]}",
@@ -147,6 +112,8 @@ async def analyze_google_sheets(
             analysis_results=final_results
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -167,13 +134,10 @@ async def test_google_sheets_connection(
         connector = GoogleSheetsConnector(sheets_request.sheet_id, sheets_request.sheet_range)
         df = connector.fetch_sheet()
 
-        if len(df) == 0:
-            return {
-                "status": "success",
-                "message": "Connected but sheet is empty",
-                "permission_status": connector.get_permission_status(),
-                "permission_warning": connector.get_permission_warning()
-            }
+        # Validate row count
+        is_valid, error_msg = validate_row_count(len(df), "sheet")
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
 
         required_columns = ['date', 'revenue']
         df_columns_lower = [col.lower() for col in df.columns]
@@ -195,27 +159,30 @@ async def test_google_sheets_connection(
             )
 
         date_col = found_columns['date']
-        pd.to_datetime(df[date_col], errors='raise')
+        try:
+            pd.to_datetime(df[date_col], errors='raise')
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Date column '{date_col}' contains invalid date formats. Please ensure dates are in a recognized format (e.g., YYYY-MM-DD)."
+            )
 
         revenue_col = found_columns['revenue']
-        pd.to_numeric(df[revenue_col], errors='raise')
+        try:
+            pd.to_numeric(df[revenue_col], errors='raise')
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Revenue column '{revenue_col}' contains non-numeric values. Please ensure revenue values are numbers."
+            )
 
         preview_data = df.head(3).to_dict('records')
-        cleaned_preview = []
-        for row in preview_data:
-            cleaned_row = {}
-            for key, value in row.items():
-                if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-                    cleaned_row[key] = None
-                elif isinstance(value, pd.Timestamp):
-                    cleaned_row[key] = value.isoformat()
-                else:
-                    cleaned_row[key] = value
-            cleaned_preview.append(cleaned_row)
+        cleaned_preview = [sanitize_for_json(row) for row in preview_data]
 
         response = {
             "status": "success",
-            "message": f"Successfully connected! Found {len(df)} rows with valid schema.",
+            "message": f"✅ Successfully connected! Sheet has {len(df)} rows with valid schema.",
+            "rows": len(df),
             "columns": list(df.columns),
             "preview": cleaned_preview,
             "found_columns": found_columns,
@@ -226,7 +193,7 @@ async def test_google_sheets_connection(
         if permission_warning:
             response["warning"] = permission_warning
 
-        return response
+        return sanitize_for_json(response)
 
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))

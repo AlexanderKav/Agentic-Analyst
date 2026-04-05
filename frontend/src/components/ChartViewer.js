@@ -43,12 +43,12 @@ const ChartViewer = ({ charts }) => {
   // Get the base URL for charts (detect environment)
   const getBaseUrl = () => {
     // Check if we're in production (Docker) or development
-    // Use relative URL for production, absolute for local
     const isLocalhost = window.location.hostname === 'localhost' || 
                         window.location.hostname === '127.0.0.1';
     
     if (isLocalhost) {
       // Local development - use absolute URL with port
+      // Make sure this matches your backend port
       return 'http://localhost:8000/api/v1/analysis/chart';
     } else {
       // Production/Docker - use relative URL
@@ -98,6 +98,10 @@ const ChartViewer = ({ charts }) => {
     console.log(`🔄 Manual retry for: ${chartPath}`);
   };
 
+  // Debug: Log what charts we received
+  console.log("📊 ChartViewer received charts:", charts);
+  console.log("📊 Chart keys:", Object.keys(charts));
+
   return (
     <Paper sx={{ p: 3, mt: 3 }}>
       <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
@@ -108,8 +112,10 @@ const ChartViewer = ({ charts }) => {
       <Grid container spacing={3}>
         {Object.entries(charts).map(([chartName, chartPath]) => {
           const filename = getFilename(chartPath);
+          console.log(`📊 Rendering chart: ${chartName} -> ${chartPath} -> filename: ${filename}`);
+          
           return (
-            <Grid item xs={12} md={6} key={chartPath}>
+            <Grid item xs={12} md={6} key={chartPath || chartName}>
               <Card variant="outlined">
                 <CardContent>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -128,7 +134,7 @@ const ChartViewer = ({ charts }) => {
                   
                   {/* Debug info - shows filename only, not full path */}
                   <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1 }}>
-                    File: {filename}
+                    File: {filename || 'No filename'}
                   </Typography>
                   
                   {/* Loading state */}
@@ -158,7 +164,7 @@ const ChartViewer = ({ charts }) => {
                   )}
                   
                   {/* Chart Image */}
-                  {!errorStates[chartPath] && (
+                  {!errorStates[chartPath] && filename && (
                     <CardMedia
                       component="img"
                       image={getImageUrl(chartPath)}
@@ -178,10 +184,19 @@ const ChartViewer = ({ charts }) => {
                     />
                   )}
                   
+                  {/* No filename warning */}
+                  {!filename && (
+                    <Alert severity="warning" sx={{ mt: 2 }}>
+                      No chart file available for {chartName}
+                    </Alert>
+                  )}
+                  
                   {/* Chart info - show just filename */}
-                  <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
-                    Saved to: {filename}
-                  </Typography>
+                  {filename && (
+                    <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
+                      Saved to: {filename}
+                    </Typography>
+                  )}
                 </CardContent>
               </Card>
             </Grid>

@@ -4,6 +4,7 @@ Single responsibility: Generate and save charts.
 """
 
 import logging
+import os
 from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
@@ -32,7 +33,7 @@ class ChartGenerator:
             viz_agent: VisualizationAgent instance for rendering charts
         """
         self.viz = viz_agent
-        self._generated_charts: List[str] = []
+        self._generated_charts: Dict[str, str] = {}  # Store name -> filename
     
     def generate_charts(self, raw_results: Dict[str, Any]) -> Dict[str, str]:
         """
@@ -42,7 +43,7 @@ class ChartGenerator:
             raw_results: Dictionary of raw tool results
             
         Returns:
-            Dictionary mapping chart names to file paths
+            Dictionary mapping chart names to filenames (not full paths)
         """
         charts: Dict[str, str] = {}
         
@@ -52,82 +53,26 @@ class ChartGenerator:
         
         try:
             # Generate standard charts via visualization agent
-            charts = self.viz.generate_from_results(raw_results)
-            self._generated_charts = list(charts.keys())
+            # This returns Dict[str, str] with full paths
+            chart_paths = self.viz.generate_from_results(raw_results)
             
-            # Log successful standard chart generation
+            # Convert full paths to just filenames for API compatibility
+            for chart_name, full_path in chart_paths.items():
+                if full_path:
+                    filename = os.path.basename(full_path)
+                    charts[chart_name] = filename
+                    self._generated_charts[chart_name] = filename
+                    logger.info(f"Chart generated: {chart_name} -> {filename}")
+            
+            # Log summary
             if charts:
-                logger.info(f"Generated {len(charts)} standard charts: {list(charts.keys())}")
-            
-            # Generate specialized product forecast chart if data available
-            forecast_chart = self._generate_product_forecast_chart(raw_results)
-            if forecast_chart:
-                charts["product_forecast"] = forecast_chart
-                logger.info("Generated product forecast chart")
+                logger.info(f"Generated {len(charts)} charts: {list(charts.keys())}")
             
             return charts
             
         except Exception as e:
             logger.error(f"Error generating charts: {e}", exc_info=True)
             return {}
-    
-    def _generate_product_forecast_chart(self, raw_results: Dict[str, Any]) -> Optional[str]:
-        """
-        Generate a product forecast chart if forecast data is available.
-        
-        Args:
-            raw_results: Raw results dictionary
-            
-        Returns:
-            Path to forecast chart or None
-        """
-        forecast_data = raw_results.get("forecast_revenue_by_product")
-        
-        if not forecast_data:
-            return None
-        
-        # Handle different forecast data formats
-        if isinstance(forecast_data, dict):
-            # Standard format from forecast_revenue_by_product
-            if "forecasts" in forecast_data:
-                period_label = forecast_data.get("period", "Next Quarter")
-                return self.viz.plot_product_forecast(forecast_data, period_label)
-            
-            # Alternative format (direct forecast values)
-            if forecast_data and any(isinstance(v, (int, float)) for v in forecast_data.values()):
-                return self._generate_simple_product_chart(forecast_data)
-        
-        return None
-    
-    def _generate_simple_product_chart(self, forecast_data: Dict[str, Any]) -> Optional[str]:
-        """
-        Generate a simple product chart from direct forecast values.
-        
-        Args:
-            forecast_data: Dictionary of product -> forecast value
-            
-        Returns:
-            Path to chart or None
-        """
-        try:
-            # Create a standardized format for the chart generator
-            formatted_data = {
-                "forecasts": {
-                    product: {"forecast_sum": value}
-                    for product, value in forecast_data.items()
-                    if isinstance(value, (int, float)) and value > 0
-                },
-                "period": "Next Period"
-            }
-            
-            if formatted_data["forecasts"]:
-                return self.viz.plot_product_forecast(formatted_data, "Next Period")
-            
-            return None
-            
-        except Exception as e:
-            logger.warning(f"Could not generate simple product chart: {e}")
-            return None
     
     def generate_single_chart(self, tool_name: str, result: Any) -> Optional[str]:
         """
@@ -138,29 +83,31 @@ class ChartGenerator:
             result: The result to visualize
             
         Returns:
-            Path to the generated chart or None
+            Filename of the generated chart or None
         """
         try:
-            chart_path = None
+            full_path = None
             
             if isinstance(result, pd.Series):
                 if not result.empty:
-                    chart_path = self.viz._plot_series(result, tool_name)
+                    full_path = self.viz._plot_series(result, tool_name)
                     logger.debug(f"Generated series chart for {tool_name}")
                 else:
                     logger.debug(f"Skipping empty series for {tool_name}")
                     
             elif isinstance(result, pd.DataFrame):
                 if not result.empty:
-                    chart_path = self.viz._plot_dataframe(result, tool_name)
+                    full_path = self.viz._plot_dataframe(result, tool_name)
                     logger.debug(f"Generated dataframe chart for {tool_name}")
                 else:
                     logger.debug(f"Skipping empty dataframe for {tool_name}")
             
-            if chart_path:
-                self._generated_charts.append(tool_name)
+            if full_path:
+                filename = os.path.basename(full_path)
+                self._generated_charts[tool_name] = filename
+                return filename
             
-            return chart_path
+            return None
             
         except Exception as e:
             logger.error(f"Error generating chart for {tool_name}: {e}")
@@ -174,23 +121,23 @@ class ChartGenerator:
             results: List of (tool_name, result) tuples
             
         Returns:
-            Dictionary mapping chart names to file paths
+            Dictionary mapping chart names to filenames
         """
         charts: Dict[str, str] = {}
         
         for tool_name, result in results:
-            chart_path = self.generate_single_chart(tool_name, result)
-            if chart_path:
-                charts[tool_name] = chart_path
+            filename = self.generate_single_chart(tool_name, result)
+            if filename:
+                charts[tool_name] = filename
         
         return charts
     
-    def get_generated_charts(self) -> List[str]:
+    def get_generated_charts(self) -> Dict[str, str]:
         """
-        Get list of chart names that have been generated.
+        Get dictionary of generated chart names to filenames.
         
         Returns:
-            List of generated chart names
+            Dictionary of chart names and their filenames
         """
         return self._generated_charts.copy()
     
@@ -229,7 +176,7 @@ class ChartGenerator:
         """
         return {
             'total_charts': len(self._generated_charts),
-            'chart_names': self._generated_charts.copy(),
+            'chart_names': list(self._generated_charts.keys()),
             'has_charts': self.has_charts()
         }
 

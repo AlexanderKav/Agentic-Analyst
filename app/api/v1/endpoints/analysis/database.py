@@ -1,4 +1,3 @@
-# app/api/v1/endpoints/analysis/database.py
 import os
 import traceback
 import pandas as pd
@@ -21,6 +20,8 @@ from .utils import (
     sanitize_for_json,
     validate_database_config,
     validate_dataframe,
+    validate_row_count,  # Add this
+    MIN_ROWS,            # Add this
 )
 
 router = APIRouter()
@@ -78,6 +79,11 @@ async def analyze_database(
             if not table:
                 raise HTTPException(status_code=400, detail="Table name is required")
             df = connector.fetch_table(table)
+
+        # 🔥 ADD ROW COUNT VALIDATION
+        is_valid, error_msg = validate_row_count(len(df), "table")
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
 
         validate_dataframe(df)
 
@@ -219,6 +225,11 @@ async def test_database_connection(
                     result = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
                 row_count = convert_to_native(result.scalar())
 
+                # 🔥 ADD ROW COUNT VALIDATION
+                is_valid, error_msg = validate_row_count(row_count, "table")
+                if not is_valid:
+                    raise HTTPException(status_code=400, detail=error_msg)
+
                 max_rows = 100000
                 if row_count > max_rows:
                     raise HTTPException(status_code=400, detail=f"Table has {row_count:,} rows. Maximum allowed is {max_rows:,}.")
@@ -229,13 +240,12 @@ async def test_database_connection(
                 else:
                     df = connector.fetch_query(f"SELECT * FROM {table_name} LIMIT 5")
 
+                # 🔥 CHANGE: Empty table should return 400 error, not success
                 if len(df) == 0:
-                    return sanitize_for_json({
-                        "status": "success",
-                        "message": f"Connected but table '{table_name}' is empty",
-                        "rows_preview": 0,
-                        "columns": []
-                    })
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Table '{table_name}' is empty. Please select a table that contains data."
+                    )
 
                 required_columns = ['date', 'revenue']
                 df_columns_lower = [col.lower() for col in df.columns]
@@ -251,16 +261,30 @@ async def test_database_connection(
                         missing.append(req_col)
 
                 if missing:
-                    raise HTTPException(status_code=400, detail=f"Missing required columns: {', '.join(missing)}.")
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Missing required columns: {', '.join(missing)}. Your table must contain 'date' and 'revenue' columns."
+                    )
 
                 date_col = found_columns['date']
-                pd.to_datetime(df[date_col], errors='raise')
+                try:
+                    pd.to_datetime(df[date_col], errors='raise')
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Date column '{date_col}' contains invalid date formats. Please ensure dates are in a recognized format (e.g., YYYY-MM-DD)."
+                    )
 
                 revenue_col = found_columns['revenue']
-                pd.to_numeric(df[revenue_col], errors='raise')
+                try:
+                    pd.to_numeric(df[revenue_col], errors='raise')
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Revenue column '{revenue_col}' contains non-numeric values. Please ensure revenue values are numbers."
+                    )
 
-                # ✅ FIX 1: Clean the dataframe before converting
-                # Replace any infinity values with NaN
+                # Clean the dataframe before converting
                 df = df.replace([np.inf, -np.inf], np.nan)
                 
                 # Convert datetime columns to string to avoid serialization issues
@@ -268,30 +292,35 @@ async def test_database_connection(
                     df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
 
                 preview_data = df.head(3).to_dict('records')
-                # ✅ FIX 2: Use sanitize_for_json instead of convert_to_native
                 cleaned_preview = [sanitize_for_json(row) for row in preview_data]
 
-                # ✅ FIX 3: Convert all numeric values to native Python types
                 response_data = {
                     "status": "success",
-                    "message": f"✅ Successfully connected! Table '{table_name}' has valid schema.",
-                    "rows_preview": int(len(df)),  # Convert to int
-                    "columns": list(df.columns),   # Already strings
+                    "message": f"✅ Successfully connected! Table '{table_name}' has {row_count} rows and valid schema.",
+                    "rows_preview": int(len(df)),
+                    "total_rows": int(row_count),
+                    "columns": list(df.columns),
                     "preview": cleaned_preview,
-                    "found_columns": sanitize_for_json(found_columns),  # Sanitize dict
+                    "found_columns": sanitize_for_json(found_columns),
                     "size_info": {
                         "columns": int(column_count) if column_count else 0,
                         "rows": int(row_count) if row_count else 0
                     }
                 }
                 
-                # ✅ FIX 4: Sanitize the entire response
                 return sanitize_for_json(response_data)
 
         elif db_request.use_query and db_request.query:
             df = connector.fetch_query(f"{db_request.query} LIMIT 5")
             
-            # ✅ FIX 5: Clean the dataframe before converting
+            # 🔥 ADD ROW COUNT VALIDATION for query results
+            if len(df) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Query returned no results. Please check your query."
+                )
+            
+            # Clean the dataframe before converting
             df = df.replace([np.inf, -np.inf], np.nan)
             
             # Convert datetime columns to string
@@ -299,7 +328,6 @@ async def test_database_connection(
                 df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
             
             preview_data = df.head(3).to_dict('records')
-            # ✅ FIX 6: Use sanitize_for_json instead of convert_to_native
             cleaned_preview = [sanitize_for_json(row) for row in preview_data]
 
             response_data = {
@@ -310,10 +338,8 @@ async def test_database_connection(
                 "preview": cleaned_preview
             }
             
-            # ✅ FIX 7: Sanitize the entire response
             return sanitize_for_json(response_data)
 
-        # ✅ FIX 8: Sanitize simple response
         return sanitize_for_json({
             "status": "success",
             "message": "✅ Successfully connected to database"

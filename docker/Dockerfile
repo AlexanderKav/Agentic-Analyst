@@ -1,35 +1,64 @@
 # docker/Dockerfile
-FROM python:3.11-slim
+# Stage 1: Builder
+FROM python:3.11-slim AS builder
 
-WORKDIR /app
+WORKDIR /build
 
-# Install dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
     gcc \
     g++ \
     libpq-dev \
     libmagic1 \
-    file \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
 COPY requirements.txt .
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Stage 2: Runtime
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    libpq-dev \
+    libmagic1 \
+    file \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Create matplotlib config directory with proper permissions
+RUN mkdir -p /home/appuser/.config/matplotlib && \
+    chown -R appuser:appuser /home/appuser
+
+WORKDIR /app
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Set matplotlib config directory
+ENV MPLCONFIGDIR=/home/appuser/.config/matplotlib
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/agents/charts /app/data && \
+    chown -R appuser:appuser /app && \
     chmod 755 /app/data
 
 # Copy application code
-COPY ./app ./app
-COPY ./agents ./agents
-COPY ./connectors ./connectors
-COPY ./services ./services
+COPY --chown=appuser:appuser ./app ./app
+COPY --chown=appuser:appuser ./agents ./agents
+COPY --chown=appuser:appuser ./connectors ./connectors
+COPY --chown=appuser:appuser ./services ./services
 
-# Create non-root user
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
 
 EXPOSE 8000
 

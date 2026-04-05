@@ -1,21 +1,57 @@
 services:
   - type: web
     name: agentic-analyst
-    runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    runtime: image
+    repo: https://github.com/YOUR_USERNAME/agentic-analyst  # Change this!
+    plan: starter
+    dockerfilePath: ./docker/Dockerfile.prod
+    dockerContext: .
     envVars:
       - key: DATABASE_URL
         fromDatabase:
           name: agentic-analyst-db
           property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: agentic-analyst-redis
+          type: redis
+          property: connectionString
       - key: SECRET_KEY
         generateValue: true
       - key: AUDIT_SECRET_KEY
         generateValue: true
+      - key: DB_ENCRYPTION_KEY
+        generateValue: true
+      - key: SECRETS_MASTER_PASSWORD
+        generateValue: true
       - key: OPENAI_API_KEY
         sync: false
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /app/credentials/google-credentials.json
+      # Optional: Email settings
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+    healthCheckPath: /health
 
   - type: postgres
     name: agentic-analyst-db
     plan: starter
+    databaseName: agentic_analyst
+    ipAllowList: []  # Allow all connections (or specify Render IPs)
+
+  - type: redis
+    name: agentic-analyst-redis
+    plan: starter  # Free tier available
+    maxmemoryPolicy: allkeys-lru

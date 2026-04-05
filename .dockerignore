@@ -3,7 +3,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+*.pyd
 .Python
+*.egg
+*.egg-info/
+dist/
+build/
 env/
 venv/
 .venv/
@@ -16,10 +21,13 @@ htmlcov/
 .tox/
 *.log
 
-# Environment
+# Environment - CRITICAL: Never include secrets
 .env
+.env.prod
 .env.local
 .env.*.local
+secrets.enc
+secrets.key
 
 # IDE
 .vscode/
@@ -27,65 +35,41 @@ htmlcov/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
 Thumbs.db
-
-# Logs
-logs/
-*.log
 
 # Data
 data/
 *.db
 *.sqlite
 *.sqlite3
+logs/
+*.log
 
 # Frontend
-frontend/node_modules/
+frontend/
+node_modules/
 frontend/build/
 frontend/.next/
 
 # Docker
 .dockerignore
 docker/
+Dockerfile*
+docker-compose*.yml
 
 # Git
 .git/
 .gitignore
 
-# Misc
+# Documentation
 *.md
+README.md
+
+# GitHub Actions
+.github/
 !.github/workflows/*.yml
 
-
-
-# .dockerignore
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
-.env
-.env.prod
-.env.local
-.env.*.local
-secrets.enc
-secrets.key
-data/
-*.db
-*.sqlite
-*.sqlite3
-.git/
-.gitignore
-README.md
-.vscode/
-.idea/
-*.log
-logs/
+# Misc
+*.pid
+*.lock

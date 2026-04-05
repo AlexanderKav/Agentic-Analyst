@@ -35,9 +35,39 @@ import { testDatabaseConnection } from '../services/api';
 const API_BASE_URL = 'http://localhost:8000/api/v1';
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
+// Helper function to extract error message from FastAPI response
+const getErrorMessage = (error) => {
+  if (!error.response?.data) {
+    return error.message || 'Connection failed';
+  }
+  
+  const detail = error.response.data.detail;
+  
+  // Array of validation errors (FastAPI format)
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail.map(err => {
+      if (err.msg) return err.msg;
+      if (err.message) return err.message;
+      return JSON.stringify(err);
+    }).join('; ');
+  }
+  
+  // Single error object
+  if (typeof detail === 'object' && detail !== null) {
+    if (detail.msg) return detail.msg;
+    if (detail.message) return detail.message;
+    if (detail.error) return detail.error;
+    return JSON.stringify(detail);
+  }
+  
+  // String error
+  if (typeof detail === 'string') return detail;
+  
+  return 'Connection failed. Please check your credentials.';
+};
+
 const SimpleDatabaseConnection = ({ onConnect, onClearResults }) => {
   const [dbType, setDbType] = useState('postgresql');
-  // ✅ UPDATED: Empty config instead of pre-filled values
   const [config, setConfig] = useState({
     host: '',
     port: '',
@@ -85,7 +115,8 @@ const SimpleDatabaseConnection = ({ onConnect, onClearResults }) => {
       setTestResult({ success: true, message: `File uploaded: ${file.name}` });
     } catch (error) {
       console.error('Error fetching SQLite tables:', error);
-      setTestResult({ success: false, message: error.response?.data?.detail || 'Failed to read SQLite file' });
+      const errorMsg = getErrorMessage(error);
+      setTestResult({ success: false, message: errorMsg });
       setSqliteFile(null);
       setSqliteTables([]);
       setSelectedSqliteTable('');
@@ -151,7 +182,6 @@ const SimpleDatabaseConnection = ({ onConnect, onClearResults }) => {
   const handleDbTypeChange = (event) => {
     const newType = event.target.value;
     setDbType(newType);
-    // ✅ UPDATED: Clear config when switching database types
     setConfig({ 
       host: '',
       port: '',
@@ -160,7 +190,6 @@ const SimpleDatabaseConnection = ({ onConnect, onClearResults }) => {
       password: '',
       table: ''
     });
-    // Reset SQLite state when switching away from SQLite
     if (newType !== 'sqlite') {
       setSqliteFile(null);
       setSqliteTables([]);
@@ -179,7 +208,6 @@ const SimpleDatabaseConnection = ({ onConnect, onClearResults }) => {
   };
 
   const handleReset = () => {
-    // ✅ UPDATED: Reset all form fields to empty
     setDbType('postgresql');
     setConfig({
       host: '',
@@ -241,16 +269,8 @@ const SimpleDatabaseConnection = ({ onConnect, onClearResults }) => {
           throw new Error(response.data?.message || 'Connection failed');
         }
       } catch (error) {
-        let errorMessage = 'Connection failed';
-        if (error.response?.data?.detail) {
-          errorMessage = error.response.data.detail;
-          if (typeof errorMessage === 'object') {
-            errorMessage = JSON.stringify(errorMessage);
-          }
-        } else if (error.message) {
-          errorMessage = error.message;
-        }
-        setTestResult({ success: false, message: errorMessage });
+        const errorMsg = getErrorMessage(error);
+        setTestResult({ success: false, message: errorMsg });
         onConnect(config, false);
       } finally {
         setTesting(false);
@@ -286,16 +306,17 @@ const SimpleDatabaseConnection = ({ onConnect, onClearResults }) => {
 
         const result = await testDatabaseConnection(testConfig);
         
-        if (result.status === 'success') {
-          setTestResult({ success: true, message: result.message });
+        if (result && result.status === 'success') {
+          setTestResult({ success: true, message: result.message || '✅ Successfully connected!' });
           setConnectionSuccess(true);
           onConnect(testConfig, true);
         } else {
-          setTestResult({ success: false, message: result.message || 'Connection failed' });
+          const errorMsg = result?.message || result?.detail || 'Connection failed';
+          setTestResult({ success: false, message: errorMsg });
           onConnect(testConfig, false);
         }
       } catch (error) {
-        const errorMsg = error.response?.data?.detail || 'Connection failed. Please check your credentials.';
+        const errorMsg = getErrorMessage(error);
         setTestResult({ success: false, message: errorMsg });
         onConnect(config, false);
       } finally {

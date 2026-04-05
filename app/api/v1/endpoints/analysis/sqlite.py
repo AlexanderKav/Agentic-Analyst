@@ -1,4 +1,3 @@
-# app/api/v1/endpoints/analysis/sqlite.py
 import math
 import os
 import sqlite3
@@ -19,7 +18,13 @@ from app.core.analysis import AnalysisOrchestrator
 from app.core.data_source import DataSourceHandler
 from app.core.database import get_db
 
-from .utils import MAX_FILE_SIZE, deep_clean_for_json, validate_dataframe
+from .utils import (
+    MAX_FILE_SIZE,
+    MIN_ROWS,
+    deep_clean_for_json,
+    validate_dataframe,
+    validate_row_count,
+)
 
 router = APIRouter()
 orchestrator = AnalysisOrchestrator()
@@ -50,22 +55,28 @@ async def test_sqlite_connection(
         conn = sqlite3.connect(temp_file_path)
         cursor = conn.cursor()
 
+        # Check if table exists
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
         if not cursor.fetchone():
             conn.close()
             raise HTTPException(status_code=400, detail=f"Table '{table}' not found in database")
 
-        df = pd.read_sql_query(f"SELECT * FROM {table} LIMIT 5", conn)
+        # Check total row count
+        safe_table = f'"{table}"' if ' ' in table else table
+        cursor.execute(f"SELECT COUNT(*) FROM {safe_table}")
+        total_rows = cursor.fetchone()[0]
+        
+        # Validate row count
+        is_valid, error_msg = validate_row_count(total_rows, "table")
+        if not is_valid:
+            conn.close()
+            raise HTTPException(status_code=400, detail=error_msg)
+
+        # Get preview data for schema validation
+        df = pd.read_sql_query(f"SELECT * FROM {safe_table} LIMIT 5", conn)
         conn.close()
 
-        if len(df) == 0:
-            return {
-                "success": True,
-                "message": f"Connected but table '{table}' is empty",
-                "rows_preview": 0,
-                "columns": list(df.columns) if len(df.columns) > 0 else []
-            }
-
+        # Validate required columns
         required_columns = ['date', 'revenue']
         df_columns_lower = [col.lower() for col in df.columns]
 
@@ -82,15 +93,30 @@ async def test_sqlite_connection(
         if missing:
             raise HTTPException(
                 status_code=400,
-                detail=f"Missing required columns: {', '.join(missing)}."
+                detail=f"Missing required columns: {', '.join(missing)}. Your table must contain 'date' and 'revenue' columns."
             )
 
+        # Validate date column
         date_col = found_columns['date']
-        pd.to_datetime(df[date_col], errors='raise')
+        try:
+            pd.to_datetime(df[date_col], errors='raise')
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Date column '{date_col}' contains invalid date formats. Please ensure dates are in a recognized format (e.g., YYYY-MM-DD)."
+            )
 
+        # Validate revenue column
         revenue_col = found_columns['revenue']
-        pd.to_numeric(df[revenue_col], errors='raise')
+        try:
+            pd.to_numeric(df[revenue_col], errors='raise')
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Revenue column '{revenue_col}' contains non-numeric values. Please ensure revenue values are numbers."
+            )
 
+        # Clean preview data for JSON response
         preview_data = df.head(3).to_dict('records')
         cleaned_preview = []
         for row in preview_data:
@@ -105,9 +131,10 @@ async def test_sqlite_connection(
             cleaned_preview.append(cleaned_row)
 
         return {
-            "success": True,
-            "message": f"✅ Successfully connected! Table '{table}' has valid schema.",
+            "status": "success",
+            "message": f"✅ Successfully connected! Table '{table}' has {total_rows} rows and valid schema.",
             "rows_preview": len(df),
+            "total_rows": total_rows,
             "columns": list(df.columns),
             "preview": cleaned_preview,
             "found_columns": found_columns,
@@ -136,11 +163,13 @@ async def get_sqlite_tables(
 
         conn = sqlite3.connect(temp_file_path)
         cursor = conn.cursor()
+        
+        # Get all tables - return simple list for frontend compatibility
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
         tables = [row[0] for row in cursor.fetchall()]
+        
         conn.close()
-
-        return {"tables": tables}
+        return {"tables": tables}  # Simple list of table names
 
     except Exception as e:
         traceback.print_exc()
@@ -187,17 +216,34 @@ async def upload_sqlite_file(
 
         conn = sqlite3.connect(temp_file_path)
 
+        # If no table specified, get the first non-empty table
         if not table or not table.strip():
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
             tables = cursor.fetchall()
+            
             if not tables:
                 conn.close()
                 raise HTTPException(status_code=400, detail="SQLite file contains no tables")
-            table = tables[0][0]
+            
+            # Find first table with data
+            for t in tables:
+                table_name = t[0]
+                safe_table = f'"{table_name}"' if ' ' in table_name else table_name
+                cursor.execute(f"SELECT COUNT(*) FROM {safe_table}")
+                row_count = cursor.fetchone()[0]
+                if row_count > 0:
+                    table = table_name
+                    break
+            
+            if not table:
+                conn.close()
+                raise HTTPException(status_code=400, detail="No tables with data found in the SQLite file")
 
         table = table.strip()
+        safe_table = f'"{table}"' if ' ' in table else table
 
+        # Check if table exists
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
         if not cursor.fetchone():
@@ -208,14 +254,24 @@ async def upload_sqlite_file(
                 detail=f"Table '{table}' not found. Available tables: {', '.join(available_tables)}"
             )
 
-        df = pd.read_sql_query(f"SELECT * FROM [{table}]" if ' ' in table else f"SELECT * FROM {table}", conn)
+        # Get total row count
+        cursor.execute(f"SELECT COUNT(*) FROM {safe_table}")
+        total_rows = cursor.fetchone()[0]
+        
+        # Validate row count
+        is_valid, error_msg = validate_row_count(total_rows, "table")
+        if not is_valid:
+            conn.close()
+            raise HTTPException(status_code=400, detail=error_msg)
+
+        # Load data
+        df = pd.read_sql_query(f"SELECT * FROM {safe_table}", conn)
         conn.close()
 
-        if len(df) == 0:
-            raise HTTPException(status_code=400, detail=f"Table '{table}' is empty.")
-
+        # Validate dataframe
         validate_dataframe(df)
 
+        # Clean preview data
         preview_data = df.head(5).to_dict('records')
         cleaned_preview = []
         for row in preview_data:
@@ -229,6 +285,7 @@ async def upload_sqlite_file(
                     cleaned_row[key] = value
             cleaned_preview.append(cleaned_row)
 
+        # Run analysis
         results, exec_time = await orchestrator.analyze_dataframe(df, question or "")
 
         if results is None:
@@ -252,6 +309,7 @@ async def upload_sqlite_file(
 
         cleaned_results = deep_clean_for_json(analysis_results)
 
+        # Save to history
         history = AnalysisHistory(
             user_id=current_user.id,
             analysis_type="sqlite",
