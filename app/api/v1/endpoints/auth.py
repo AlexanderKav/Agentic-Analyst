@@ -14,7 +14,7 @@ from slowapi.util import get_remote_address
 from app.api.v1.models.user import User
 from app.config import settings
 from app.core.database import get_db
-from app.services.email import EmailService
+# from app.services.email import EmailService  # 🔥 COMMENTED OUT
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 limiter = Limiter(key_func=get_remote_address)
@@ -123,11 +123,12 @@ def get_current_user(
     if user is None:
         raise credentials_exception
 
-    if require_verified and not user.is_verified:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email not verified. Please check your inbox for verification link."
-        )
+    # 🔥 COMMENTED OUT - Allow unverified users to log in for testing
+    # if require_verified and not user.is_verified:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_401_UNAUTHORIZED,
+    #         detail="Email not verified. Please check your inbox for verification link."
+    #     )
 
     return user
 
@@ -156,20 +157,24 @@ async def register(
         if existing_user.is_verified:
             raise HTTPException(status_code=400, detail="Username already registered")
         else:
-            # Resend verification email
-            token = existing_user.generate_verification_token()
+            # 🔥 COMMENTED OUT - Resend verification email
+            # token = existing_user.generate_verification_token()
+            # db.commit()
+            # email_service = EmailService()
+            # background_tasks.add_task(
+            #     email_service.send_verification_email,
+            #     existing_user.email,
+            #     existing_user.username,
+            #     token
+            # )
+            
+            # 🔥 Auto-verify existing user for testing
+            existing_user.is_verified = True
+            existing_user.verification_token = None
             db.commit()
 
-            email_service = EmailService()
-            background_tasks.add_task(
-                email_service.send_verification_email,
-                existing_user.email,
-                existing_user.username,
-                token
-            )
-
             return {
-                "message": "Verification email resent. Please check your inbox.",
+                "message": "Account activated! You can now log in.",
                 "email": existing_user.email
             }
 
@@ -179,24 +184,30 @@ async def register(
     user.full_name = user_data.full_name
     user.set_password(user_data.password)
 
-    token = user.generate_verification_token()
+    # token = user.generate_verification_token()  # 🔥 COMMENTED OUT
 
     db.add(user)
     db.commit()
     db.refresh(user)
 
-    email_service = EmailService()
-    background_tasks.add_task(
-        email_service.send_verification_email,
-        user.email,
-        user.username,
-        token
-    )
+    # 🔥 COMMENTED OUT - Send verification email
+    # email_service = EmailService()
+    # background_tasks.add_task(
+    #     email_service.send_verification_email,
+    #     user.email,
+    #     user.username,
+    #     token
+    # )
 
-    logger.info(f"User registered: {user.username} ({user.email})")
+    # 🔥 AUTO-VERIFY USER FOR TESTING
+    user.is_verified = True
+    user.verification_token = None
+    db.commit()
+
+    logger.info(f"User registered and auto-verified: {user.username} ({user.email})")
 
     return {
-        "message": "Registration successful! Please check your email to verify your account.",
+        "message": "Registration successful! Your account is already verified. You can now log in.",
         "email": user.email
     }
 
@@ -249,11 +260,12 @@ async def login(
         logger.warning(f"Failed login attempt for {form_data.username} from {request.client.host}")
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    if not user.is_verified:
-        raise HTTPException(
-            status_code=401,
-            detail="Please verify your email first. Check your inbox for the verification link."
-        )
+    # 🔥 COMMENTED OUT - Allow unverified users to log in for testing
+    # if not user.is_verified:
+    #     raise HTTPException(
+    #         status_code=401,
+    #         detail="Please verify your email first. Check your inbox for the verification link."
+    #     )
 
     access_token = create_access_token(data={"sub": str(user.id)})
 
@@ -296,20 +308,25 @@ async def resend_verification(
     if user.is_verified:
         raise HTTPException(status_code=400, detail="Email already verified")
 
-    token = user.generate_verification_token()
+    # 🔥 COMMENTED OUT - Resend verification email
+    # token = user.generate_verification_token()
+    # db.commit()
+    # email_service = EmailService()
+    # background_tasks.add_task(
+    #     email_service.send_verification_email,
+    #     user.email,
+    #     user.username,
+    #     token
+    # )
+
+    # 🔥 Auto-verify user instead
+    user.is_verified = True
+    user.verification_token = None
     db.commit()
 
-    email_service = EmailService()
-    background_tasks.add_task(
-        email_service.send_verification_email,
-        user.email,
-        user.username,
-        token
-    )
+    logger.info(f"User auto-verified: {user.email}")
 
-    logger.info(f"Verification email resent to {user.email}")
-
-    return {"message": "Verification email resent"}
+    return {"message": "Account verified! You can now log in."}
 
 
 @router.get("/me", response_model=UserResponse)
@@ -367,20 +384,20 @@ async def forgot_password(
     if not user:
         return {"message": "If your email is registered, you'll receive a reset link"}
 
-    token = user.generate_reset_token()
-    db.commit()
+    # 🔥 COMMENTED OUT - Send password reset email
+    # token = user.generate_reset_token()
+    # db.commit()
+    # email_service = EmailService()
+    # background_tasks.add_task(
+    #     email_service.send_password_reset_email,
+    #     user.email,
+    #     user.username,
+    #     token
+    # )
 
-    email_service = EmailService()
-    background_tasks.add_task(
-        email_service.send_password_reset_email,
-        user.email,
-        user.username,
-        token
-    )
+    logger.info(f"Password reset requested for {user.email} but email sending is disabled")
 
-    logger.info(f"Password reset email queued for {user.email}")
-
-    return {"message": "If your email is registered, you'll receive a reset link"}
+    return {"message": "If your email is registered, you'll receive a reset link (email sending currently disabled for testing)"}
 
 
 @router.post("/reset-password")
