@@ -2,6 +2,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import os
+import json
+import tempfile
 import pandas as pd
 from dotenv import load_dotenv
 import numpy as np
@@ -17,15 +19,31 @@ class GoogleSheetsConnector:
         self.sheet_id = sheet_id
         self.sheet_range = sheet_range
         
-        # Find credentials file
-        self.creds_path = self._find_credentials_path()
+        # Find credentials (from env var or file)
+        self.creds_path = self._get_credentials_path()
         self.service = self._connect_to_sheets()
         self.has_write_access = None
         self.sheet_title = None
 
-    def _find_credentials_path(self):
-        """Find credentials file in multiple possible locations"""
-        # Check environment variable first
+    def _get_credentials_path(self):
+        """Get credentials from environment variable or file"""
+        
+        # 🔥 NEW: Try to get credentials from environment variable first (for Render free tier)
+        creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+        if creds_json:
+            try:
+                # Validate JSON
+                json.loads(creds_json)
+                # Write to temporary file
+                temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+                temp_file.write(creds_json)
+                temp_file.close()
+                print(f"✅ Loaded Google credentials from environment variable")
+                return temp_file.name
+            except json.JSONDecodeError as e:
+                print(f"❌ Invalid JSON in GOOGLE_CREDENTIALS_JSON: {e}")
+        
+        # Check environment variable for file path
         creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
         if creds_path and os.path.exists(creds_path):
             print(f"✅ Found credentials at: {creds_path}")
@@ -47,9 +65,8 @@ class GoogleSheetsConnector:
                 return abs_path
         
         raise FileNotFoundError(
-            f"Google credentials file not found. Tried: {possible_paths}\n"
-            "Please set GOOGLE_APPLICATION_CREDENTIALS environment variable or "
-            "place the credentials file in the project root."
+            "Google credentials not found. Please set GOOGLE_CREDENTIALS_JSON environment variable "
+            "with the service account JSON content, or set GOOGLE_APPLICATION_CREDENTIALS to the file path."
         )
 
     def _connect_to_sheets(self):
