@@ -14,6 +14,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+
 class EmailService:
     def __init__(self):
         self.smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
@@ -21,9 +22,12 @@ class EmailService:
         self.smtp_user = os.getenv("SMTP_USER")
         self.smtp_password = os.getenv("SMTP_PASSWORD")
         self.from_email = os.getenv("FROM_EMAIL", self.smtp_user)
+        # 🔥 Get frontend URL from environment (default to localhost for development)
+        self.frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
         print(f"📧 Email service initialized with: {self.smtp_host}:{self.smtp_port}")
         print(f"📧 From: {self.from_email}")
+        print(f"📧 Frontend URL: {self.frontend_url}")
 
     async def _send_email(self, to_email: str, subject: str, html_content: str) -> tuple:
         """Internal method to send emails"""
@@ -61,8 +65,8 @@ class EmailService:
 
     async def send_verification_email(self, to_email: str, username: str, token: str):
         """Send email verification link"""
-        # Point to the frontend success page that will handle the verification
-        verification_link = f"http://localhost:3000/verification-success?token={token}"
+        # 🔥 Use frontend_url from environment (not hardcoded localhost)
+        verification_link = f"{self.frontend_url}/verification-success?token={token}"
 
         print(f"📧 Sending verification email to {to_email}")
         print(f"🔗 Verification link: {verification_link}")
@@ -168,7 +172,7 @@ class EmailService:
                 </div>
                 
                 <div class="footer">
-                    <p>© 2024 Agentic Analyst. All rights reserved.</p>
+                    <p>© 2025 Agentic Analyst. All rights reserved.</p>
                     <p style="margin-top: 10px; font-size: 12px;">
                         This is an automated message, please do not reply to this email.
                     </p>
@@ -179,6 +183,122 @@ class EmailService:
         """
 
         return await self._send_email(to_email, "Verify Your Email - Agentic Analyst", html)
+
+    async def send_password_reset_email(self, to_email: str, username: str, token: str):
+        """Send password reset email"""
+        # 🔥 Use frontend_url from environment
+        reset_link = f"{self.frontend_url}/reset-password?token={token}"
+
+        print(f"📧 Sending password reset email to {to_email}")
+        print(f"🔗 Reset link: {reset_link}")
+
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {{
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    line-height: 1.6;
+                    color: #333;
+                    margin: 0;
+                    padding: 0;
+                    background-color: #f4f4f4;
+                }}
+                .container {{
+                    max-width: 600px;
+                    margin: 20px auto;
+                    background: white;
+                    border-radius: 10px;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                    overflow: hidden;
+                }}
+                .header {{
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 40px 30px;
+                    text-align: center;
+                }}
+                .header h1 {{
+                    margin: 0;
+                    font-size: 28px;
+                    font-weight: 600;
+                }}
+                .content {{
+                    padding: 40px 30px;
+                    background: white;
+                }}
+                .button {{
+                    display: inline-block;
+                    padding: 14px 30px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 50px;
+                    font-weight: 600;
+                    margin: 20px 0;
+                    transition: transform 0.2s;
+                }}
+                .button:hover {{
+                    transform: translateY(-2px);
+                    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+                }}
+                .footer {{
+                    background: #f8f9fa;
+                    padding: 20px 30px;
+                    text-align: center;
+                    color: #666;
+                    font-size: 14px;
+                    border-top: 1px solid #eee;
+                }}
+                .note {{
+                    background: #fff3cd;
+                    border-left: 4px solid #ffc107;
+                    padding: 15px;
+                    margin: 20px 0;
+                    border-radius: 5px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🔐 Password Reset</h1>
+                </div>
+                
+                <div class="content">
+                    <h2>Hi {username},</h2>
+                    
+                    <p>We received a request to reset your password. Click the button below to create a new password:</p>
+                    
+                    <div style="text-align: center;">
+                        <a href="{reset_link}" class="button">Reset Password</a>
+                    </div>
+                    
+                    <div class="note">
+                        <strong>🔒 Security Note:</strong> This link will expire in 24 hours. If you didn't request this, you can safely ignore this email.
+                    </div>
+                    
+                    <p style="margin-top: 30px;">
+                        Or copy this link to your browser:<br>
+                        <small style="color: #667eea; word-break: break-all;">{reset_link}</small>
+                    </p>
+                </div>
+                
+                <div class="footer">
+                    <p>© 2025 Agentic Analyst. All rights reserved.</p>
+                    <p style="margin-top: 10px; font-size: 12px;">
+                        This is an automated message, please do not reply to this email.
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        return await self._send_email(to_email, "Reset Your Password - Agentic Analyst", html)
 
     async def send_analysis_results(self, to_email: str, question: str, results: dict[str, Any],
                                     charts: dict[str, str] | None = None):
@@ -328,7 +448,6 @@ class EmailService:
             html += "</div>"
 
         # Add data summary
-        data_summary = results.get("data_summary", {})
         if data_summary:
             html += f"""
                 <div style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
@@ -346,7 +465,7 @@ class EmailService:
                 
                 <div class="footer">
                     <p>Sent by Agentic Analyst - Your AI Business Intelligence Assistant</p>
-                    <p>© 2024 Agentic Analyst. All rights reserved.</p>
+                    <p>© 2025 Agentic Analyst. All rights reserved.</p>
                 </div>
             </div>
         </body>
@@ -396,125 +515,6 @@ class EmailService:
             import traceback
             traceback.print_exc()
             return False, error_msg
-    # app/services/email.py
-
-    # Add this method to your EmailService class
-
-    # app/services/email.py - Update the send_password_reset_email method
-    async def send_password_reset_email(self, to_email: str, username: str, token: str):
-        """Send password reset email"""
-        reset_link = f"http://localhost:3000/reset-password?token={token}"
-
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-                body {{
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    line-height: 1.6;
-                    color: #333;
-                    margin: 0;
-                    padding: 0;
-                    background-color: #f4f4f4;
-                }}
-                .container {{
-                    max-width: 600px;
-                    margin: 20px auto;
-                    background: white;
-                    border-radius: 10px;
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                    overflow: hidden;
-                }}
-                .header {{
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                    padding: 40px 30px;
-                    text-align: center;
-                }}
-                .header h1 {{
-                    margin: 0;
-                    font-size: 28px;
-                    font-weight: 600;
-                }}
-                .content {{
-                    padding: 40px 30px;
-                    background: white;
-                }}
-                .button {{
-                    display: inline-block;
-                    padding: 14px 30px;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 50px;
-                    font-weight: 600;
-                    margin: 20px 0;
-                    transition: transform 0.2s;
-                }}
-                .button:hover {{
-                    transform: translateY(-2px);
-                    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-                }}
-                .footer {{
-                    background: #f8f9fa;
-                    padding: 20px 30px;
-                    text-align: center;
-                    color: #666;
-                    font-size: 14px;
-                    border-top: 1px solid #eee;
-                }}
-                .note {{
-                    background: #fff3cd;
-                    border-left: 4px solid #ffc107;
-                    padding: 15px;
-                    margin: 20px 0;
-                    border-radius: 5px;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>🔐 Password Reset</h1>
-                </div>
-                
-                <div class="content">
-                    <h2>Hi {username},</h2>
-                    
-                    <p>We received a request to reset your password. Click the button below to create a new password:</p>
-                    
-                    <div style="text-align: center;">
-                        <a href="{reset_link}" class="button">Reset Password</a>
-                    </div>
-                    
-                    <div class="note">
-                        <strong>🔒 Security Note:</strong> This link will expire in 24 hours. If you didn't request this, you can safely ignore this email.
-                    </div>
-                    
-                    <p style="margin-top: 30px;">
-                        Or copy this link to your browser:<br>
-                        <small style="color: #667eea; word-break: break-all;">{reset_link}</small>
-                    </p>
-                </div>
-                
-                <div class="footer">
-                    <p>© 2024 Agentic Analyst. All rights reserved.</p>
-                    <p style="margin-top: 10px; font-size: 12px;">
-                        This is an automated message, please do not reply to this email.
-                    </p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-
-        return await self._send_email(to_email, "Reset Your Password - Agentic Analyst", html)
 
 
-__all__ = ['ABTestService']  # For ab_testing.py
-__all__ = ['EmailService']   # For email.py
-__all__ = ['KeyRotationService', 'get_key_rotation_service']  # For key_rotation.py
-__all__ = ['SecretsManager', 'get_secrets_manager']  # For secrets_manager.py
+__all__ = ['EmailService']
