@@ -12,7 +12,7 @@ class EmailService:
             print(f"✅ SendGrid email service initialized")
         print(f"📧 Email service ready (SendGrid: {self.use_sendgrid})")
 
-    async def _send_via_sendgrid(self, to_email: str, subject: str, content: str, plain_text: str = None) -> tuple:
+    async def _send_via_sendgrid(self, to_email: str, subject: str, content: str) -> tuple:
         """Send email using SendGrid API"""
         if not self.use_sendgrid or not self.sendgrid_api_key:
             return False, "SendGrid not configured"
@@ -89,25 +89,37 @@ Agentic Analyst Team
         """Send analysis results email - MATCHING FRONTEND QUALITY"""
         subject = f"Agentic Analyst Results: {question[:40]}..."
         
-        # Extract insights
+        # Extract insights safely
         insights = results.get("insights", "No insights available")
         if isinstance(insights, dict):
             insights = insights.get("human_readable_summary") or insights.get("answer") or str(insights)
         
-        # Extract raw insights for detailed sections
-        raw_insights = results.get("raw_insights", {})
-        supporting_insights = raw_insights.get("supporting_insights", {})
-        key_findings = supporting_insights.get("key_findings", [])
-        anomalies = raw_insights.get("anomalies", {}).get("identified", [])
-        recommendations = raw_insights.get("recommended_metrics", {}).get("next_steps", [])
+        # Extract raw insights safely (handle None)
+        raw_insights = results.get("raw_insights")
+        if raw_insights is None:
+            raw_insights = {}
         
-        # Get KPIs
-        kpis = results.get("results", {}).get("kpis", {})
+        supporting_insights = raw_insights.get("supporting_insights", {}) if isinstance(raw_insights, dict) else {}
+        key_findings = supporting_insights.get("key_findings", []) if isinstance(supporting_insights, dict) else []
+        
+        anomalies_dict = raw_insights.get("anomalies", {}) if isinstance(raw_insights, dict) else {}
+        anomalies = anomalies_dict.get("identified", []) if isinstance(anomalies_dict, dict) else []
+        
+        recommendations_dict = raw_insights.get("recommended_metrics", {}) if isinstance(raw_insights, dict) else {}
+        recommendations = recommendations_dict.get("next_steps", []) if isinstance(recommendations_dict, dict) else []
+        
+        # Get KPIs safely
+        results_dict = results.get("results", {}) if isinstance(results.get("results"), dict) else {}
+        kpis = results_dict.get("kpis", {}) if isinstance(results_dict, dict) else {}
         if not kpis:
-            kpis = results.get("kpis", {})
+            kpis = results.get("kpis", {}) if isinstance(results.get("kpis"), dict) else {}
         
-        # Get forecast details
-        forecast_details = supporting_insights.get("metrics", {}).get("forecast_details", "")
+        # Get forecast details safely
+        forecast_details = ""
+        if isinstance(supporting_insights, dict):
+            metrics = supporting_insights.get("metrics", {})
+            if isinstance(metrics, dict):
+                forecast_details = metrics.get("forecast_details", "")
         
         # Build Key Findings section
         findings_text = ""
@@ -158,23 +170,26 @@ Agentic Analyst Team
         
         # Create the full email content
         content = f"""
-    {'='*60}
-    🤖 AGENTIC ANALYST - ANALYSIS RESULTS
-    {'='*60}
+{'='*60}
+🤖 AGENTIC ANALYST - ANALYSIS RESULTS
+{'='*60}
 
-    Your Question: "{question}"
+Your Question: "{question}"
 
-    Analysis Summary:
-    {insights}
-    {findings_text}
-    {kpi_text}
-    {anomalies_text}
-    {recommendations_text}
-    {charts_text}
-    {'='*60}
-    📎 Complete analysis results attached as JSON file.
+Analysis Summary:
+{insights}
+{findings_text}
+{kpi_text}
+{anomalies_text}
+{recommendations_text}
+{charts_text}
+{'='*60}
+📎 Complete analysis results attached as JSON file.
 
-    Agentic Analyst Team
-    """
+Agentic Analyst Team
+"""
         
         return await self._send_via_sendgrid(to_email, subject, content)
+
+
+__all__ = ['EmailService']
