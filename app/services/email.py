@@ -5,7 +5,6 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -48,9 +47,6 @@ class EmailService:
         try:
             from sendgrid.helpers.mail import Mail
             
-            print(f"📧 SendGrid - Sending to: {to_email}")
-            print(f"📧 SendGrid - Subject: {subject}")
-            
             message = Mail(
                 from_email=self.from_email,
                 to_emails=to_email,
@@ -59,8 +55,6 @@ class EmailService:
             message.html_content = html_content
             
             response = self.sendgrid_client.send(message)
-            
-            print(f"📧 SendGrid - Response status: {response.status_code}")
             
             if response.status_code == 202:
                 print(f"✅ Email sent via SendGrid to {to_email}")
@@ -72,8 +66,6 @@ class EmailService:
         except Exception as e:
             error_msg = f"SendGrid error: {str(e)}"
             print(f"❌ {error_msg}")
-            import traceback
-            traceback.print_exc()
             return False, error_msg
 
     async def send_verification_email(self, to_email: str, username: str, token: str):
@@ -124,26 +116,22 @@ class EmailService:
         return f"""
         <!DOCTYPE html>
         <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Verify Your Email</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                           color: white; padding: 30px; text-align: center; }}
-                .content {{ background: #f9f9f9; padding: 30px; }}
-                .button {{ display: inline-block; padding: 12px 24px; 
-                          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                          color: white; text-decoration: none; border-radius: 5px; }}
-                .footer {{ text-align: center; padding: 20px; font-size: 12px; color: #666; }}
-            </style>
+        <head><meta charset="UTF-8"><title>Verify Your Email</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                       color: white; padding: 30px; text-align: center; }}
+            .content {{ background: #f9f9f9; padding: 30px; }}
+            .button {{ display: inline-block; padding: 12px 24px; 
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                      color: white; text-decoration: none; border-radius: 5px; }}
+            .footer {{ text-align: center; padding: 20px; font-size: 12px; color: #666; }}
+        </style>
         </head>
         <body>
             <div class="container">
-                <div class="header">
-                    <h1>🤖 Agentic Analyst</h1>
-                </div>
+                <div class="header"><h1>🤖 Agentic Analyst</h1></div>
                 <div class="content">
                     <h2>Welcome, {username}!</h2>
                     <p>Please verify your email address to start using Agentic Analyst.</p>
@@ -151,14 +139,11 @@ class EmailService:
                         <a href="{verification_link}" class="button">Verify Email Address</a>
                     </div>
                     <p style="margin-top: 20px; font-size: 12px;">
-                        Or copy this link: <br>
-                        <small>{verification_link}</small>
+                        Or copy this link: <br><small>{verification_link}</small>
                     </p>
                     <p><strong>🔒 This link expires in 24 hours.</strong></p>
                 </div>
-                <div class="footer">
-                    <p>© 2025 Agentic Analyst. All rights reserved.</p>
-                </div>
+                <div class="footer"><p>© 2025 Agentic Analyst. All rights reserved.</p></div>
             </div>
         </body>
         </html>
@@ -169,26 +154,22 @@ class EmailService:
         return f"""
         <!DOCTYPE html>
         <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Reset Your Password</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                           color: white; padding: 30px; text-align: center; }}
-                .content {{ background: #f9f9f9; padding: 30px; }}
-                .button {{ display: inline-block; padding: 12px 24px; 
-                          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                          color: white; text-decoration: none; border-radius: 5px; }}
-                .footer {{ text-align: center; padding: 20px; font-size: 12px; color: #666; }}
-            </style>
+        <head><meta charset="UTF-8"><title>Reset Your Password</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                       color: white; padding: 30px; text-align: center; }}
+            .content {{ background: #f9f9f9; padding: 30px; }}
+            .button {{ display: inline-block; padding: 12px 24px; 
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                      color: white; text-decoration: none; border-radius: 5px; }}
+            .footer {{ text-align: center; padding: 20px; font-size: 12px; color: #666; }}
+        </style>
         </head>
         <body>
             <div class="container">
-                <div class="header">
-                    <h1>🔐 Password Reset</h1>
-                </div>
+                <div class="header"><h1>🔐 Password Reset</h1></div>
                 <div class="content">
                     <h2>Hi {username},</h2>
                     <p>We received a request to reset your password.</p>
@@ -196,15 +177,12 @@ class EmailService:
                         <a href="{reset_link}" class="button">Reset Password</a>
                     </div>
                     <p style="margin-top: 20px; font-size: 12px;">
-                        Or copy this link: <br>
-                        <small>{reset_link}</small>
+                        Or copy this link: <br><small>{reset_link}</small>
                     </p>
                     <p><strong>🔒 This link expires in 24 hours.</strong></p>
                     <p>If you didn't request this, please ignore this email.</p>
                 </div>
-                <div class="footer">
-                    <p>© 2025 Agentic Analyst. All rights reserved.</p>
-                </div>
+                <div class="footer"><p>© 2025 Agentic Analyst. All rights reserved.</p></div>
             </div>
         </body>
         </html>
@@ -219,45 +197,32 @@ class EmailService:
         return f"""
         <!DOCTYPE html>
         <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Analysis Results</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                           color: white; padding: 30px; text-align: center; }}
-                .content {{ background: #f9f9f9; padding: 30px; }}
-                .insights-box {{
-                    background: #e3f2fd;
-                    padding: 20px;
-                    border-left: 4px solid #1976d2;
-                    border-radius: 5px;
-                    margin: 20px 0;
-                }}
-                .footer {{ text-align: center; padding: 20px; font-size: 12px; color: #666; }}
-                .question {{ font-style: italic; background: #f5f5f5; padding: 15px; border-radius: 5px; }}
-            </style>
+        <head><meta charset="UTF-8"><title>Analysis Results</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                       color: white; padding: 30px; text-align: center; }}
+            .content {{ background: #f9f9f9; padding: 30px; }}
+            .insights-box {{
+                background: #e3f2fd;
+                padding: 20px;
+                border-left: 4px solid #1976d2;
+                border-radius: 5px;
+                margin: 20px 0;
+            }}
+            .question {{ font-style: italic; background: #f5f5f5; padding: 15px; border-radius: 5px; }}
+            .footer {{ text-align: center; padding: 20px; font-size: 12px; color: #666; }}
+        </style>
         </head>
         <body>
             <div class="container">
-                <div class="header">
-                    <h1>🤖 Agentic Analyst</h1>
-                    <p>Your AI-Powered Business Intelligence Results</p>
-                </div>
+                <div class="header"><h1>🤖 Agentic Analyst</h1><p>Your AI-Powered Business Intelligence Results</p></div>
                 <div class="content">
-                    <div class="question">
-                        <strong>Your Question:</strong><br>
-                        "{question if question else 'General Business Overview'}"
-                    </div>
-                    <div class="insights-box">
-                        <h3>💡 Key Insights</h3>
-                        <p>{insights}</p>
-                    </div>
+                    <div class="question"><strong>Your Question:</strong><br>"{question if question else 'General Business Overview'}"</div>
+                    <div class="insights-box"><h3>💡 Key Insights</h3><p>{insights}</p></div>
                 </div>
-                <div class="footer">
-                    <p>© 2025 Agentic Analyst. All rights reserved.</p>
-                </div>
+                <div class="footer"><p>© 2025 Agentic Analyst. All rights reserved.</p></div>
             </div>
         </body>
         </html>
