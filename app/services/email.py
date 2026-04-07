@@ -15,62 +15,66 @@ class EmailService:
         print(f"📧 Email service ready (SendGrid: {self.use_sendgrid})")
 
     async def _send_via_sendgrid(self, to_email: str, subject: str, content: str, charts: dict = None, json_results: bytes = None) -> tuple:
-        """Send email using SendGrid API with attachments"""
+        """Send email using SendGrid API by constructing the raw JSON payload."""
         if not self.use_sendgrid or not self.sendgrid_api_key:
             return False, "SendGrid not configured"
         
         try:
             from sendgrid import SendGridAPIClient
-            from sendgrid.helpers.mail import Mail, Attachment
             
-            sg = SendGridAPIClient(self.sendgrid_api_key)
+            # 1. Build the base email payload as a dictionary
+            payload = {
+                "personalizations": [
+                    {
+                        "to": [{"email": to_email}],
+                        "subject": subject,
+                    }
+                ],
+                "from": {"email": self.from_email},
+                "content": [{"type": "text/plain", "value": content}],
+            }
             
-            # Create basic mail with plain text content
-            message = Mail(
-                from_email=self.from_email,
-                to_emails=to_email,
-                subject=subject,
-                plain_text_content=content
-            )
-            
-            # Add JSON attachment if provided and valid
+            # 2. Add JSON attachment if provided
             if json_results and len(json_results) > 0:
-                encoded = base64.b64encode(json_results).decode()
-                attachment = Attachment()
-                attachment.content = encoded
-                attachment.type = "application/json"
-                attachment.filename = "analysis_results.json"
-                attachment.disposition = "attachment"
-                message.add_attachment(attachment)
-                print(f"📎 Added JSON attachment ({len(json_results)} bytes)")
+                encoded_content = base64.b64encode(json_results).decode()
+                attachment = {
+                    "content": encoded_content,
+                    "filename": "analysis_results.json",
+                    "type": "application/json",
+                    "disposition": "attachment"
+                }
+                payload.setdefault("attachments", []).append(attachment)
+                print(f"📎 Added JSON attachment to payload")
             
-            # Add chart attachments if provided
+            # 3. Add chart attachments if provided
             if charts:
                 for chart_name, chart_path in charts.items():
                     if chart_path and os.path.exists(chart_path):
                         with open(chart_path, 'rb') as f:
                             file_data = f.read()
                             if file_data:
-                                encoded = base64.b64encode(file_data).decode()
-                                attachment = Attachment()
-                                attachment.content = encoded
-                                attachment.type = "image/png"
-                                attachment.filename = f"{chart_name}.png"
-                                attachment.disposition = "attachment"
-                                message.add_attachment(attachment)
+                                encoded_content = base64.b64encode(file_data).decode()
+                                attachment = {
+                                    "content": encoded_content,
+                                    "filename": f"{chart_name}.png",
+                                    "type": "image/png",
+                                    "disposition": "attachment"
+                                }
+                                payload.setdefault("attachments", []).append(attachment)
                                 print(f"📎 Added chart: {chart_name}.png ({len(file_data)} bytes)")
                     else:
                         print(f"⚠️ Chart file not found: {chart_path}")
             
-            response = sg.send(message)
+            # 4. Send the email using the low-level API method
+            sg = SendGridAPIClient(self.sendgrid_api_key)
+            response = sg.client.mail.send.post(request_body=payload)
             
             if response.status_code == 202:
                 print(f"✅ Email sent to {to_email}")
                 return True, "Email sent"
             else:
                 print(f"❌ SendGrid returned {response.status_code}")
-                if hasattr(response, 'body'):
-                    print(f"Response body: {response.body}")
+                print(f"Response body: {response.body}")
                 return False, f"Error: {response.status_code}"
                 
         except Exception as e:
