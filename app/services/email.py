@@ -1,4 +1,6 @@
 import os
+import json
+import base64
 from typing import Any
 
 class EmailService:
@@ -12,14 +14,14 @@ class EmailService:
             print(f"✅ SendGrid email service initialized")
         print(f"📧 Email service ready (SendGrid: {self.use_sendgrid})")
 
-    async def _send_via_sendgrid(self, to_email: str, subject: str, content: str) -> tuple:
-        """Send email using SendGrid API"""
+    async def _send_via_sendgrid(self, to_email: str, subject: str, content: str, charts: dict = None, json_results: bytes = None) -> tuple:
+        """Send email using SendGrid API with optional chart and JSON attachments"""
         if not self.use_sendgrid or not self.sendgrid_api_key:
             return False, "SendGrid not configured"
         
         try:
             from sendgrid import SendGridAPIClient
-            from sendgrid.helpers.mail import Mail, Email, To, Content
+            from sendgrid.helpers.mail import Mail, Email, To, Content, Attachment
             
             sg = SendGridAPIClient(self.sendgrid_api_key)
             
@@ -28,10 +30,40 @@ class EmailService:
             
             mail = Mail(from_email, to_email_obj, subject, Content("text/plain", content))
             
+            # Attach charts if provided
+            if charts:
+                for chart_name, chart_path in charts.items():
+                    if chart_path and os.path.exists(chart_path):
+                        with open(chart_path, 'rb') as f:
+                            file_data = f.read()
+                            encoded = base64.b64encode(file_data).decode()
+                            
+                            attachment = Attachment()
+                            attachment.content = encoded
+                            attachment.type = "image/png"
+                            attachment.filename = f"{chart_name}.png"
+                            attachment.disposition = "attachment"
+                            mail.add_attachment(attachment)
+                            print(f"📎 Attached chart: {chart_name}.png ({len(file_data)} bytes)")
+                    else:
+                        print(f"⚠️ Chart file not found: {chart_path}")
+            
+            # Attach JSON results if provided
+            if json_results:
+                encoded_json = base64.b64encode(json_results).decode()
+                json_attachment = Attachment()
+                json_attachment.content = encoded_json
+                json_attachment.type = "application/json"
+                json_attachment.filename = "analysis_results.json"
+                json_attachment.disposition = "attachment"
+                mail.add_attachment(json_attachment)
+                print(f"📎 Attached JSON results ({len(json_results)} bytes)")
+            
             response = sg.send(mail)
             
             if response.status_code == 202:
-                print(f"✅ Email sent to {to_email}")
+                chart_count = len(charts) if charts else 0
+                print(f"✅ Email sent to {to_email} with {chart_count} chart(s) and JSON attachment")
                 return True, "Email sent"
             else:
                 print(f"❌ SendGrid error: {response.status_code}")
@@ -39,6 +71,8 @@ class EmailService:
                 
         except Exception as e:
             print(f"❌ SendGrid error: {e}")
+            import traceback
+            traceback.print_exc()
             return False, str(e)
 
     async def send_verification_email(self, to_email: str, username: str, token: str):
@@ -86,7 +120,7 @@ Agentic Analyst Team
         return await self._send_via_sendgrid(to_email, "Reset Your Password", content)
 
     async def send_analysis_results(self, to_email: str, question: str, results: dict, charts: dict = None):
-        """Send analysis results email - MATCHING FRONTEND QUALITY"""
+        """Send analysis results email with chart attachments"""
         subject = f"Agentic Analyst Results: {question[:40]}..."
         
         # Extract insights safely
@@ -168,6 +202,45 @@ Agentic Analyst Team
         if charts and len(charts) > 0:
             charts_text = f"\n\n📎 {len(charts)} chart(s) attached to this email.\n"
         
+        # Convert relative chart paths to absolute paths for attachment
+        abs_charts = {}
+        if charts:
+            base_dir = os.path.abspath(".")
+            possible_dirs = [
+                "agents/charts",
+                "/app/agents/charts",
+                os.path.join(base_dir, "agents", "charts"),
+            ]
+            
+            for name, path in charts.items():
+                found = False
+                if path and os.path.exists(path):
+                    abs_charts[name] = path
+                    print(f"✅ Chart '{name}' found at: {path}")
+                    found = True
+                else:
+                    filename = os.path.basename(path) if path else f"{name}.png"
+                    for dir_path in possible_dirs:
+                        full_path = os.path.join(dir_path, filename)
+                        if os.path.exists(full_path):
+                            abs_charts[name] = full_path
+                            print(f"✅ Chart '{name}' found at: {full_path}")
+                            found = True
+                            break
+                
+                if not found:
+                    print(f"⚠️ Chart '{name}' not found. Tried: {path}, {filename} in {possible_dirs}")
+                    abs_charts[name] = path
+        
+        # Create JSON attachment
+        json_results = None
+        if results:
+            try:
+                json_str = json.dumps(results, indent=2, default=str)
+                json_results = json_str.encode('utf-8')
+            except Exception as e:
+                print(f"⚠️ Could not create JSON attachment: {e}")
+        
         # Create the full email content
         content = f"""
 {'='*60}
@@ -189,7 +262,7 @@ Analysis Summary:
 Agentic Analyst Team
 """
         
-        return await self._send_via_sendgrid(to_email, subject, content)
+        return await self._send_via_sendgrid(to_email, subject, content, abs_charts, json_results)
 
 
 __all__ = ['EmailService']
