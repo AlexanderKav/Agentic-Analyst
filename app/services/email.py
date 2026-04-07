@@ -21,59 +21,62 @@ class EmailService:
         
         try:
             from sendgrid import SendGridAPIClient
-            from sendgrid.helpers.mail import Mail, Email, To, Content, Attachment
+            from sendgrid.helpers.mail import Mail, Attachment
             
             sg = SendGridAPIClient(self.sendgrid_api_key)
             
-            from_email = Email(self.from_email)
-            to_email_obj = To(to_email)
-            content_obj = Content("text/plain", content)
+            # Create basic mail with plain text content
+            message = Mail(
+                from_email=self.from_email,
+                to_emails=to_email,
+                subject=subject,
+                plain_text_content=content
+            )
             
-            mail = Mail(from_email, to_email_obj, subject, content_obj)
-            
-            # Attach charts if provided
-            if charts:
-                for chart_name, chart_path in charts.items():
-                    if chart_path and os.path.exists(chart_path):
-                        with open(chart_path, 'rb') as f:
-                            file_data = f.read()
-                            encoded = base64.b64encode(file_data).decode()
-                            
-                            attachment = Attachment()
-                            attachment.content = encoded
-                            attachment.type = "image/png"
-                            attachment.filename = f"{chart_name}.png"
-                            attachment.disposition = "attachment"
-                            mail.add_attachment(attachment)
-                            print(f"📎 Attached chart: {chart_name}.png ({len(file_data)} bytes)")
-                    else:
-                        print(f"⚠️ Chart file not found: {chart_path}")
-            
-            # Attach JSON results if provided
-            if json_results:
+            # Add JSON attachment if provided and valid
+            if json_results and len(json_results) > 0:
                 encoded = base64.b64encode(json_results).decode()
                 attachment = Attachment()
                 attachment.content = encoded
                 attachment.type = "application/json"
                 attachment.filename = "analysis_results.json"
                 attachment.disposition = "attachment"
-                mail.add_attachment(attachment)
-                print(f"📎 Attached JSON results ({len(json_results)} bytes)")
+                message.add_attachment(attachment)
+                print(f"📎 Added JSON attachment ({len(json_results)} bytes)")
             
-            response = sg.send(mail)
+            # Add chart attachments if provided
+            if charts:
+                for chart_name, chart_path in charts.items():
+                    if chart_path and os.path.exists(chart_path):
+                        with open(chart_path, 'rb') as f:
+                            file_data = f.read()
+                            if file_data:
+                                encoded = base64.b64encode(file_data).decode()
+                                attachment = Attachment()
+                                attachment.content = encoded
+                                attachment.type = "image/png"
+                                attachment.filename = f"{chart_name}.png"
+                                attachment.disposition = "attachment"
+                                message.add_attachment(attachment)
+                                print(f"📎 Added chart: {chart_name}.png ({len(file_data)} bytes)")
+                    else:
+                        print(f"⚠️ Chart file not found: {chart_path}")
+            
+            response = sg.send(message)
             
             if response.status_code == 202:
-                chart_count = len(charts) if charts else 0
-                print(f"✅ Email sent to {to_email} with {chart_count} chart(s) and JSON attachment")
+                print(f"✅ Email sent to {to_email}")
                 return True, "Email sent"
             else:
                 print(f"❌ SendGrid returned {response.status_code}")
+                if hasattr(response, 'body'):
+                    print(f"Response body: {response.body}")
                 return False, f"Error: {response.status_code}"
                 
         except Exception as e:
             print(f"❌ SendGrid error: {e}")
             if hasattr(e, 'body'):
-                print(f"Response body: {e.body}")
+                print(f"Error body: {e.body}")
             return False, str(e)
 
     async def send_verification_email(self, to_email: str, username: str, token: str):
@@ -258,6 +261,7 @@ Agentic Analyst Team
                     clean_results['results'].pop('charts', None)
                 json_str = json.dumps(clean_results, indent=2, default=str)
                 json_results = json_str.encode('utf-8')
+                print(f"📝 Created JSON attachment: {len(json_results)} bytes")
             except Exception as e:
                 print(f"⚠️ Could not create JSON attachment: {e}")
         
