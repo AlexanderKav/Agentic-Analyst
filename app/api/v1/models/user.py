@@ -1,22 +1,14 @@
 # app/api/v1/models/user.py
-import re
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy import Boolean, Column, DateTime, Integer, LargeBinary, String
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 from app.core.encryption import get_db_encryption
-
-# Use bcrypt with truncation for password length limitation
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto",
-    bcrypt__truncate_error=False  # Automatically truncate long passwords
-)
 
 
 class User(Base):
@@ -42,7 +34,7 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     verified_at = Column(DateTime, nullable=True)
     is_admin = Column(Boolean, default=False)
-    # last_login = Column(DateTime, nullable=True)  # Commented out for now
+    # last_login = Column(DateTime, nullable=True)
 
     analyses = relationship("AnalysisHistory", back_populates="user", cascade="all, delete-orphan")
 
@@ -77,26 +69,29 @@ class User(Base):
             self.full_name_encrypted = None
 
     def set_password(self, password: str) -> None:
-        """Set hashed password (bcrypt truncates to 72 bytes)"""
+        """Set hashed password using bcrypt directly"""
         if len(password) < 8:
             raise ValueError("Password must be at least 8 characters long")
         
-        # Bcrypt has a 72 byte limit, truncate if necessary
-        if len(password.encode('utf-8')) > 72:
-            password = password[:72]
-            print(f"⚠️ Password truncated to 72 characters for bcrypt")
+        # Bcrypt has a 72 byte limit
+        password_bytes = password.encode('utf-8')
+        if len(password_bytes) > 72:
+            password_bytes = password_bytes[:72]
+            print(f"⚠️ Password truncated to 72 bytes")
         
-        self.hashed_password = pwd_context.hash(password)
+        # Generate salt and hash
+        salt = bcrypt.gensalt()
+        self.hashed_password = bcrypt.hashpw(password_bytes, salt).decode('utf-8')
         print(f"✅ Password hashed for user {self.username}")
 
     def verify_password(self, password: str) -> bool:
-        """Verify password against hash"""
-        # Truncate password to 72 bytes for verification too
-        if len(password.encode('utf-8')) > 72:
-            password = password[:72]
-        
+        """Verify password against hash using bcrypt directly"""
         try:
-            result = pwd_context.verify(password, self.hashed_password)
+            password_bytes = password.encode('utf-8')
+            if len(password_bytes) > 72:
+                password_bytes = password_bytes[:72]
+            
+            result = bcrypt.checkpw(password_bytes, self.hashed_password.encode('utf-8'))
             print(f"🔐 Password verification for {self.username}: {result}")
             return result
         except Exception as e:
@@ -144,12 +139,7 @@ class User(Base):
         
         return token_valid and not_expired
 
-    # def update_last_login(self) -> None:
-    #     """Update last login timestamp"""
-    #     self.last_login = datetime.utcnow()
-
     def __repr__(self) -> str:
-        """String representation for debugging"""
         return f"<User(id={self.id}, username={self.username}, is_verified={self.is_verified})>"
 
 
