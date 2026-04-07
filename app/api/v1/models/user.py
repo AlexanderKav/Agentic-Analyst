@@ -11,8 +11,12 @@ from sqlalchemy.orm import relationship
 from app.core.database import Base
 from app.core.encryption import get_db_encryption
 
-# 🔥 Change from argon2 to bcrypt (more reliable on Render)
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use bcrypt with truncation for password length limitation
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__truncate_error=False  # Automatically truncate long passwords
+)
 
 
 class User(Base):
@@ -38,7 +42,7 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     verified_at = Column(DateTime, nullable=True)
     is_admin = Column(Boolean, default=False)
-  #  last_login = Column(DateTime, nullable=True)  # Add this column
+    # last_login = Column(DateTime, nullable=True)  # Commented out for now
 
     analyses = relationship("AnalysisHistory", back_populates="user", cascade="all, delete-orphan")
 
@@ -73,17 +77,31 @@ class User(Base):
             self.full_name_encrypted = None
 
     def set_password(self, password: str) -> None:
-        """Set hashed password"""
+        """Set hashed password (bcrypt truncates to 72 bytes)"""
         if len(password) < 8:
             raise ValueError("Password must be at least 8 characters long")
+        
+        # Bcrypt has a 72 byte limit, truncate if necessary
+        if len(password.encode('utf-8')) > 72:
+            password = password[:72]
+            print(f"⚠️ Password truncated to 72 characters for bcrypt")
+        
         self.hashed_password = pwd_context.hash(password)
         print(f"✅ Password hashed for user {self.username}")
 
     def verify_password(self, password: str) -> bool:
         """Verify password against hash"""
-        result = pwd_context.verify(password, self.hashed_password)
-        print(f"🔐 Password verification for {self.username}: {result}")
-        return result
+        # Truncate password to 72 bytes for verification too
+        if len(password.encode('utf-8')) > 72:
+            password = password[:72]
+        
+        try:
+            result = pwd_context.verify(password, self.hashed_password)
+            print(f"🔐 Password verification for {self.username}: {result}")
+            return result
+        except Exception as e:
+            print(f"❌ Password verification error: {e}")
+            return False
 
     def generate_verification_token(self) -> str:
         """Generate email verification token"""
@@ -107,7 +125,7 @@ class User(Base):
     def generate_reset_token(self) -> str:
         """Generate a password reset token"""
         self.reset_token = secrets.token_urlsafe(32)
-        self.reset_token_expires = datetime.utcnow() + timedelta(hours=24)
+        self.reset_token_expires = datetime.utcnow() + timedelta(hours:24)
         print(f"🔐 Reset token generated for {self.username}, expires at {self.reset_token_expires}")
         return self.reset_token
 
@@ -126,9 +144,9 @@ class User(Base):
         
         return token_valid and not_expired
 
-   # def update_last_login(self) -> None:
-    #    """Update last login timestamp"""
-     #   self.last_login = datetime.utcnow()
+    # def update_last_login(self) -> None:
+    #     """Update last login timestamp"""
+    #     self.last_login = datetime.utcnow()
 
     def __repr__(self) -> str:
         """String representation for debugging"""
