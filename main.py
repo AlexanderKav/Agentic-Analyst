@@ -173,6 +173,7 @@ autonomous_analyst = AutonomousAnalyst(planner, analytics, insight_agent, viz_ag
 #question = "What is most likely to be the most successful product for the first quarter of 2025?"
 #question="Which product revenue had a decrease in sales in the first half of year?"
 #question="How is the business performing?"
+#vercel --prod
 #question = ""
 question = "Hello"
 if question is None or question.strip() == "":

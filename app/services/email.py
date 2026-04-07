@@ -17,34 +17,79 @@ logger = logging.getLogger(__name__)
 
 class EmailService:
     def __init__(self):
+        # SendGrid configuration
+        self.sendgrid_api_key = os.getenv("SENDGRID_API_KEY")
+        self.use_sendgrid = bool(self.sendgrid_api_key)
+        
+        # SMTP configuration (fallback)
         self.smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
         self.smtp_port = int(os.getenv("SMTP_PORT", 587))
         self.smtp_user = os.getenv("SMTP_USER")
         self.smtp_password = os.getenv("SMTP_PASSWORD")
+        
+        # Common settings
         self.from_email = os.getenv("FROM_EMAIL", self.smtp_user)
-        # 🔥 Get frontend URL from environment (default to localhost for development)
+        self.from_name = os.getenv("FROM_NAME", "Agentic Analyst")
         self.frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
-        print(f"📧 Email service initialized with: {self.smtp_host}:{self.smtp_port}")
+        # Initialize SendGrid if available
+        if self.use_sendgrid:
+            try:
+                from sendgrid import SendGridAPIClient
+                self.sendgrid_client = SendGridAPIClient(self.sendgrid_api_key)
+                print(f"✅ SendGrid email service initialized")
+            except ImportError:
+                print("⚠️ SendGrid package not installed. Install with: pip install sendgrid")
+                self.use_sendgrid = False
+            except Exception as e:
+                print(f"⚠️ SendGrid initialization failed: {e}")
+                self.use_sendgrid = False
+        
+        print(f"📧 Email service initialized (SendGrid: {self.use_sendgrid}, SMTP: {bool(self.smtp_user)})")
         print(f"📧 From: {self.from_email}")
         print(f"📧 Frontend URL: {self.frontend_url}")
 
-    async def _send_email(self, to_email: str, subject: str, html_content: str) -> tuple:
-        """Internal method to send emails"""
+    async def _send_via_sendgrid(self, to_email: str, subject: str, html_content: str) -> tuple:
+        """Send email using SendGrid API"""
+        try:
+            from sendgrid.helpers.mail import Mail
+            
+            message = Mail(
+                from_email=self.from_email,
+                to_emails=to_email,
+                subject=subject
+            )
+            message.html_content = html_content
+            
+            response = self.sendgrid_client.send(message)
+            
+            if response.status_code == 202:
+                print(f"✅ Email sent via SendGrid to {to_email}")
+                return True, "Email sent successfully"
+            else:
+                print(f"❌ SendGrid returned {response.status_code}")
+                return False, f"SendGrid error: {response.status_code}"
+                
+        except Exception as e:
+            error_msg = f"SendGrid error: {str(e)}"
+            print(f"❌ {error_msg}")
+            return False, error_msg
+
+    async def _send_via_smtp(self, to_email: str, subject: str, html_content: str) -> tuple:
+        """Send email using SMTP (fallback)"""
+        if not self.smtp_user or not self.smtp_password:
+            return False, "SMTP not configured"
+        
         try:
             print(f"📧 Preparing to send email to {to_email}")
             print(f"📧 Subject: {subject}")
 
-            # Create message
             msg = MIMEMultipart()
             msg["From"] = self.from_email
             msg["To"] = to_email
             msg["Subject"] = subject
-
-            # Attach HTML content
             msg.attach(MIMEText(html_content, "html"))
 
-            # Connect to SMTP server
             print(f"📧 Connecting to {self.smtp_host}:{self.smtp_port}...")
             with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
                 server.starttls()
@@ -52,20 +97,33 @@ class EmailService:
                 server.login(self.smtp_user, self.smtp_password)
                 print("📧 Login successful")
                 server.send_message(msg)
-                print(f"✅ Email sent successfully to {to_email}")
+                print(f"✅ Email sent via SMTP to {to_email}")
 
             return True, "Email sent successfully"
 
         except Exception as e:
-            error_msg = f"Failed to send email: {str(e)}"
+            error_msg = f"SMTP error: {str(e)}"
             print(f"❌ {error_msg}")
             import traceback
             traceback.print_exc()
             return False, error_msg
 
+    async def _send_email(self, to_email: str, subject: str, html_content: str) -> tuple:
+        """Send email using available method (SendGrid preferred, SMTP fallback)"""
+        # Try SendGrid first if available
+        if self.use_sendgrid:
+            success, message = await self._send_via_sendgrid(to_email, subject, html_content)
+            if success:
+                return True, message
+        
+        # Fallback to SMTP
+        if self.smtp_user and self.smtp_password:
+            return await self._send_via_smtp(to_email, subject, html_content)
+        
+        return False, "No email service configured"
+
     async def send_verification_email(self, to_email: str, username: str, token: str):
         """Send email verification link"""
-        # 🔥 Use frontend_url from environment (not hardcoded localhost)
         verification_link = f"{self.frontend_url}/verification-success?token={token}"
 
         print(f"📧 Sending verification email to {to_email}")
@@ -186,7 +244,6 @@ class EmailService:
 
     async def send_password_reset_email(self, to_email: str, username: str, token: str):
         """Send password reset email"""
-        # 🔥 Use frontend_url from environment
         reset_link = f"{self.frontend_url}/reset-password?token={token}"
 
         print(f"📧 Sending password reset email to {to_email}")
@@ -499,15 +556,15 @@ class EmailService:
                             msg.attach(attachment)
                             print(f"📎 Attached chart: {name}.png")
 
-            # Send email
-            print(f"📧 Sending analysis results to {to_email}")
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_user, self.smtp_password)
-                server.send_message(msg)
-
-            print(f"✅ Analysis results sent successfully to {to_email}")
-            return True, "Email sent successfully"
+            # Send email using the unified method
+            success, message = await self._send_email(to_email, subject, html)
+            
+            if success:
+                print(f"✅ Analysis results sent successfully to {to_email}")
+            else:
+                print(f"❌ Failed to send analysis results: {message}")
+            
+            return success, message
 
         except Exception as e:
             error_msg = f"Failed to send analysis email: {str(e)}"
