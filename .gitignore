@@ -81,3 +81,4 @@ frontend/.env.production
 # files
 updated.xlsx
 data.csv
+upload_to_neon.py
