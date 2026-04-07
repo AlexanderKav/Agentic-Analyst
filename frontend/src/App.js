@@ -226,7 +226,9 @@ function DashboardContent() {
           formData.append('table', dbConfig.selected_sqlite_table);
           
           const token = localStorage.getItem('token');
-          const apiResponse = await fetch('http://localhost:8000/api/v1/analysis/upload-sqlite', {
+          // 🔥 FIXED: Use environment variable instead of hardcoded localhost
+          const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
+          const apiResponse = await fetch(`${API_BASE_URL}/analysis/upload-sqlite`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}` },
             body: formData
