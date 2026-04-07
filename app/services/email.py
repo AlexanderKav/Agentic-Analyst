@@ -21,16 +21,15 @@ class EmailService:
         
         try:
             from sendgrid import SendGridAPIClient
-            from sendgrid.helpers.mail import Mail
+            from sendgrid.helpers.mail import Mail, Email, To, Content
             
             sg = SendGridAPIClient(self.sendgrid_api_key)
             
-            message = Mail(
-                from_email=self.from_email,
-                to_emails=to_email,
-                subject="Reset Your Password"
-            )
-            message.plain_text_content = f"""
+            from_email = Email(self.from_email)
+            to_email_obj = To(to_email)
+            subject = "Reset Your Password"
+            
+            content = Content("text/plain", f"""
 Password Reset
 
 Hi {username},
@@ -44,9 +43,11 @@ This link expires in 24 hours.
 If you didn't request this, please ignore this email.
 
 Agentic Analyst Team
-"""
+""")
             
-            response = sg.send(message)
+            mail = Mail(from_email, to_email_obj, subject, content)
+            response = sg.send(mail)
+            
             print(f"✅ Sent! Status: {response.status_code}")
             return True, "Email sent"
             
@@ -62,16 +63,15 @@ Agentic Analyst Team
         
         try:
             from sendgrid import SendGridAPIClient
-            from sendgrid.helpers.mail import Mail
+            from sendgrid.helpers.mail import Mail, Email, To, Content
             
             sg = SendGridAPIClient(self.sendgrid_api_key)
             
-            message = Mail(
-                from_email=self.from_email,
-                to_emails=to_email,
-                subject="Verify Your Email"
-            )
-            message.plain_text_content = f"""
+            from_email = Email(self.from_email)
+            to_email_obj = To(to_email)
+            subject = "Verify Your Email"
+            
+            content = Content("text/plain", f"""
 Verify Your Email
 
 Hi {username},
@@ -83,9 +83,11 @@ Click the link below to verify your email:
 This link expires in 24 hours.
 
 Agentic Analyst Team
-"""
+""")
             
-            response = sg.send(message)
+            mail = Mail(from_email, to_email_obj, subject, content)
+            response = sg.send(mail)
+            
             print(f"✅ Verification sent! Status: {response.status_code}")
             return True, "Email sent"
             
@@ -101,16 +103,15 @@ Agentic Analyst Team
         
         try:
             from sendgrid import SendGridAPIClient
-            from sendgrid.helpers.mail import Mail
+            from sendgrid.helpers.mail import Mail, Email, To, Content
             
             sg = SendGridAPIClient(self.sendgrid_api_key)
             
-            message = Mail(
-                from_email=self.from_email,
-                to_emails=to_email,
-                subject=f"Analysis Results: {question[:30]}"
-            )
-            message.plain_text_content = f"""
+            from_email = Email(self.from_email)
+            to_email_obj = To(to_email)
+            subject = f"Analysis Results: {question[:30]}"
+            
+            content = Content("text/plain", f"""
 Analysis Results
 
 Question: {question}
@@ -119,9 +120,11 @@ Key Insights:
 {insights}
 
 Agentic Analyst Team
-"""
+""")
             
-            response = sg.send(message)
+            mail = Mail(from_email, to_email_obj, subject, content)
+            response = sg.send(mail)
+            
             print(f"✅ Analysis sent! Status: {response.status_code}")
             return True, "Email sent"
             
