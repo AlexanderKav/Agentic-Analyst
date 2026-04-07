@@ -54,11 +54,9 @@ class EmailService:
             )
             message.html_content = html_content
             
-            # Add plain text version if provided (fallback for email clients)
             if plain_text_content:
                 message.plain_text_content = plain_text_content
             
-            # Log request details for debugging
             print(f"📧 SendGrid Request:")
             print(f"   From: {self.from_email}")
             print(f"   To: {to_email}")
@@ -82,11 +80,20 @@ class EmailService:
             error_msg = str(e)
             print(f"❌ SendGrid error: {error_msg}")
             
-            # Try to extract more details from the exception
+            # 🔥 Try to extract the actual error body from the exception
             if hasattr(e, 'body'):
-                print(f"Error body: {e.body}")
+                print(f"📧 Error Body: {e.body}")
+                try:
+                    error_data = json.loads(e.body)
+                    print(f"📧 Parsed Error: {json.dumps(error_data, indent=2)}")
+                    if 'errors' in error_data:
+                        for err in error_data['errors']:
+                            print(f"   Field: {err.get('field')}, Message: {err.get('message')}")
+                except:
+                    pass
+                    
             if hasattr(e, 'headers'):
-                print(f"Error headers: {e.headers}")
+                print(f"📧 Error Headers: {e.headers}")
             
             import traceback
             traceback.print_exc()
@@ -214,7 +221,6 @@ Agentic Analyst Team
         if isinstance(insights, dict):
             insights = insights.get("human_readable_summary") or insights.get("answer") or str(insights)
         
-        # Get KPIs if available
         kpis = results.get("results", {}).get("kpis", {})
         if not kpis:
             kpis = results.get("kpis", {})
@@ -261,7 +267,6 @@ Agentic Analyst Team
         if isinstance(insights, dict):
             insights = insights.get("human_readable_summary") or insights.get("answer") or str(insights)
         
-        # Get KPIs if available
         kpis = results.get("results", {}).get("kpis", {})
         if not kpis:
             kpis = results.get("kpis", {})
