@@ -125,7 +125,7 @@ class User(Base):
     def generate_reset_token(self) -> str:
         """Generate a password reset token"""
         self.reset_token = secrets.token_urlsafe(32)
-        self.reset_token_expires = datetime.utcnow() + timedelta(hours:24)
+        self.reset_token_expires = datetime.utcnow() + timedelta(hours=24)
         print(f"🔐 Reset token generated for {self.username}, expires at {self.reset_token_expires}")
         return self.reset_token
 
