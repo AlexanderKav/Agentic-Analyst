@@ -61,11 +61,18 @@ class EmailService:
                 return True, "Email sent successfully"
             else:
                 print(f"❌ SendGrid returned {response.status_code}")
+                # Try to get response body for more info
+                try:
+                    print(f"Response body: {response.body}")
+                except:
+                    pass
                 return False, f"SendGrid error: {response.status_code}"
                 
         except Exception as e:
             error_msg = f"SendGrid error: {str(e)}"
             print(f"❌ {error_msg}")
+            import traceback
+            traceback.print_exc()
             return False, error_msg
 
     async def send_verification_email(self, to_email: str, username: str, token: str):
@@ -112,118 +119,84 @@ class EmailService:
         return await self._send_via_sendgrid(to_email, subject, html)
 
     def _get_verification_html(self, username: str, verification_link: str) -> str:
-        """Generate verification email HTML"""
+        """Generate simplified verification email HTML"""
         return f"""
-        <!DOCTYPE html>
         <html>
-        <head><meta charset="UTF-8"><title>Verify Your Email</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                       color: white; padding: 30px; text-align: center; }}
-            .content {{ background: #f9f9f9; padding: 30px; }}
-            .button {{ display: inline-block; padding: 12px 24px; 
-                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                      color: white; text-decoration: none; border-radius: 5px; }}
-            .footer {{ text-align: center; padding: 20px; font-size: 12px; color: #666; }}
-        </style>
-        </head>
         <body>
-            <div class="container">
-                <div class="header"><h1>🤖 Agentic Analyst</h1></div>
-                <div class="content">
-                    <h2>Welcome, {username}!</h2>
-                    <p>Please verify your email address to start using Agentic Analyst.</p>
-                    <div style="text-align: center;">
-                        <a href="{verification_link}" class="button">Verify Email Address</a>
-                    </div>
-                    <p style="margin-top: 20px; font-size: 12px;">
-                        Or copy this link: <br><small>{verification_link}</small>
-                    </p>
-                    <p><strong>🔒 This link expires in 24 hours.</strong></p>
-                </div>
-                <div class="footer"><p>© 2025 Agentic Analyst. All rights reserved.</p></div>
-            </div>
+            <h2>Welcome to Agentic Analyst!</h2>
+            <p>Hi {username},</p>
+            <p>Please verify your email address by clicking the link below:</p>
+            <p><a href="{verification_link}">Verify Email Address</a></p>
+            <p>Or copy this link: {verification_link}</p>
+            <p>This link expires in 24 hours.</p>
+            <p>If you didn't create an account, please ignore this email.</p>
+            <br>
+            <p>Agentic Analyst Team</p>
         </body>
         </html>
         """
 
     def _get_password_reset_html(self, username: str, reset_link: str) -> str:
-        """Generate password reset email HTML"""
+        """Generate simplified password reset email HTML"""
         return f"""
-        <!DOCTYPE html>
         <html>
-        <head><meta charset="UTF-8"><title>Reset Your Password</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                       color: white; padding: 30px; text-align: center; }}
-            .content {{ background: #f9f9f9; padding: 30px; }}
-            .button {{ display: inline-block; padding: 12px 24px; 
-                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                      color: white; text-decoration: none; border-radius: 5px; }}
-            .footer {{ text-align: center; padding: 20px; font-size: 12px; color: #666; }}
-        </style>
-        </head>
         <body>
-            <div class="container">
-                <div class="header"><h1>🔐 Password Reset</h1></div>
-                <div class="content">
-                    <h2>Hi {username},</h2>
-                    <p>We received a request to reset your password.</p>
-                    <div style="text-align: center;">
-                        <a href="{reset_link}" class="button">Reset Password</a>
-                    </div>
-                    <p style="margin-top: 20px; font-size: 12px;">
-                        Or copy this link: <br><small>{reset_link}</small>
-                    </p>
-                    <p><strong>🔒 This link expires in 24 hours.</strong></p>
-                    <p>If you didn't request this, please ignore this email.</p>
-                </div>
-                <div class="footer"><p>© 2025 Agentic Analyst. All rights reserved.</p></div>
-            </div>
+            <h2>Password Reset Request</h2>
+            <p>Hi {username},</p>
+            <p>We received a request to reset your password. Click the link below to reset it:</p>
+            <p><a href="{reset_link}">Reset Password</a></p>
+            <p>Or copy this link: {reset_link}</p>
+            <p>This link expires in 24 hours.</p>
+            <p>If you didn't request this, please ignore this email.</p>
+            <br>
+            <p>Agentic Analyst Team</p>
         </body>
         </html>
         """
 
     def _get_analysis_html(self, question: str, results: dict) -> str:
-        """Generate analysis results email HTML"""
+        """Generate simplified analysis results email HTML"""
         insights = results.get("insights", "No insights available")
         if isinstance(insights, dict):
             insights = insights.get("human_readable_summary") or insights.get("answer") or str(insights)
         
+        # Get KPIs if available
+        kpis = results.get("results", {}).get("kpis", {})
+        if not kpis:
+            kpis = results.get("kpis", {})
+        
+        kpi_html = ""
+        if kpis:
+            kpi_html = "<h3>Key Metrics:</h3><ul>"
+            for key, value in kpis.items():
+                if isinstance(value, (int, float)):
+                    if "revenue" in key or "profit" in key:
+                        formatted = f"${value:,.0f}"
+                    elif "margin" in key:
+                        formatted = f"{value:.1%}"
+                    else:
+                        formatted = f"{value:,.0f}"
+                else:
+                    formatted = str(value)
+                kpi_html += f"<li><strong>{key.replace('_', ' ').title()}:</strong> {formatted}</li>"
+            kpi_html += "</ul>"
+        
         return f"""
-        <!DOCTYPE html>
         <html>
-        <head><meta charset="UTF-8"><title>Analysis Results</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                       color: white; padding: 30px; text-align: center; }}
-            .content {{ background: #f9f9f9; padding: 30px; }}
-            .insights-box {{
-                background: #e3f2fd;
-                padding: 20px;
-                border-left: 4px solid #1976d2;
-                border-radius: 5px;
-                margin: 20px 0;
-            }}
-            .question {{ font-style: italic; background: #f5f5f5; padding: 15px; border-radius: 5px; }}
-            .footer {{ text-align: center; padding: 20px; font-size: 12px; color: #666; }}
-        </style>
-        </head>
         <body>
-            <div class="container">
-                <div class="header"><h1>🤖 Agentic Analyst</h1><p>Your AI-Powered Business Intelligence Results</p></div>
-                <div class="content">
-                    <div class="question"><strong>Your Question:</strong><br>"{question if question else 'General Business Overview'}"</div>
-                    <div class="insights-box"><h3>💡 Key Insights</h3><p>{insights}</p></div>
-                </div>
-                <div class="footer"><p>© 2025 Agentic Analyst. All rights reserved.</p></div>
+            <h2>🤖 Agentic Analyst Results</h2>
+            <p><strong>Your Question:</strong> "{question if question else 'General Business Overview'}"</p>
+            
+            <div style="background: #e3f2fd; padding: 15px; border-left: 4px solid #1976d2;">
+                <h3>💡 Key Insights</h3>
+                <p>{insights}</p>
             </div>
+            
+            {kpi_html}
+            
+            <p>A complete JSON file with analysis results is attached to this email.</p>
+            <br>
+            <p>Agentic Analyst Team</p>
         </body>
         </html>
         """
