@@ -259,65 +259,39 @@ Connection parameters:
 2. Select the table containing your data
 3. File size limit: 10MB
 
+## Local Development
 
-# Prerequisites
-Python 3.11+
+### Prerequisites
 
-Node.js 18+
+- Python 3.11+
+- Node.js 18+
+- PostgreSQL (optional, SQLite works for development)
+- Redis (optional, for caching)
+- Docker (optional)
 
-PostgreSQL (optional, SQLite works for development)
+### Backend Setup
 
-Redis (optional, for caching)
-
-Docker (optional)
-
-# Backend Setup
+```bash
 # Clone the repository
-   1. git clone https://github.com/AlexanderKav/agentic-analyst.git
-   2. cd agentic-analyst
+git clone https://github.com/AlexanderKav/agentic-analyst.git
+cd agentic-analyst
 
 # Create virtual environment
-   1. python -m venv venv
-   2. source venv/bin/activate  # On Windows: venv\Scripts\activate
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
-   1. pip install -r requirements.txt
+pip install -r requirements.txt
 
 # Copy environment variables
-   1. cp .env.example .env
+cp .env.example .env
 
 # Edit .env with your API keys
-   1. OPENAI_API_KEY=sk-...
-   2. SENDGRID_API_KEY=SG...
+# OPENAI_API_KEY=sk-...
+# SENDGRID_API_KEY=SG...
 
 # Run the backend
-   1. python -m app.main
-
-# Frontend Setup
-
-# Navigate to frontend directory
-   1. cd frontend
-
-# Install dependencies
-   2. npm install
-
-# Create environment file
-   3. echo "REACT_APP_API_URL=http://localhost:8000/api/v1" > .env
-
-# Start the development server
-   4. npm start
-
-# Database (optional - SQLite used by default)
-   1. DATABASE_URL=postgresql://user:pass@localhost:5432/agentic_analyst
-
-# Security - Generate with: python -c "import secrets; print(secrets.token_hex(32))"
-   1. SECRET_KEY=your-secret-key-min-32-chars
-   2. AUDIT_SECRET_KEY=your-audit-secret-key
-   3. DB_ENCRYPTION_KEY=your-encryption-key
-   4. SECRETS_MASTER_PASSWORD=your-master-password
-
-# Frontend URL (for email links)
-   1. FRONTEND_URL=http://localhost:3000
+python -m app.main
 
 
 # 🛠️ Technology Stack
