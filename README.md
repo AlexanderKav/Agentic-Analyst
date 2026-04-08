@@ -289,10 +289,19 @@ cp .env.example .env
 # Edit .env with your API keys
 # OPENAI_API_KEY=sk-...
 # SENDGRID_API_KEY=SG...
+Database (optional - SQLite used by default)
+DATABASE_URL=postgresql://user:pass@localhost:5432/agentic_analyst
+
+# Security - Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+SECRET_KEY=your-secret-key-min-32-chars
+AUDIT_SECRET_KEY=your-audit-secret-key
+DB_ENCRYPTION_KEY=your-encryption-key
+SECRETS_MASTER_PASSWORD=your-master-password
 
 # Run the backend
 python -m app.main
 
+### Frontend Setup
 # Navigate to frontend directory
 cd frontend
 
@@ -305,17 +314,8 @@ echo "REACT_APP_API_URL=http://localhost:8000/api/v1" > .env
 # Start the development server
 npm start
 
-# Database (optional - SQLite used by default)
-DATABASE_URL=postgresql://user:pass@localhost:5432/agentic_analyst
 
-# Security - Generate with: python -c "import secrets; print(secrets.token_hex(32))"
-SECRET_KEY=your-secret-key-min-32-chars
-AUDIT_SECRET_KEY=your-audit-secret-key
-DB_ENCRYPTION_KEY=your-encryption-key
-SECRETS_MASTER_PASSWORD=your-master-password
-
-# Frontend URL (for email links)
-FRONTEND_URL=http://localhost:3000
+### Docker Setup
 
 # Build and run all services
 docker-compose -f docker/docker-compose.dev.yml up --build
@@ -343,7 +343,8 @@ docker-compose -f docker/docker-compose.prod.yml down
 # Stop and remove volumes (reset database)
 docker-compose -f docker/docker-compose.prod.yml down -v
 
-# 🛠️ Technology Stack
+
+### 🛠️ Technology Stack
 
 # Backend
 
