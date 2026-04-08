@@ -11,14 +11,13 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api
 const VerificationSuccess = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { setVerifiedUser } = useAuth();
-  const [status, setStatus] = useState('verifying'); // verifying, success, error
+  const { login } = useAuth(); // ✅ Use login instead of setVerifiedUser
+  const [status, setStatus] = useState('verifying');
   const [message, setMessage] = useState('');
-  const hasVerified = useRef(false); // Prevent double verification
+  const hasVerified = useRef(false);
 
   useEffect(() => {
     const verifyEmail = async () => {
-      // Prevent double execution (React Strict Mode)
       if (hasVerified.current) return;
       hasVerified.current = true;
 
@@ -32,35 +31,28 @@ const VerificationSuccess = () => {
 
       try {
         console.log('🔍 Verifying email with token:', token);
+        console.log('🔍 API URL:', API_BASE_URL);
         
-        // Call backend verification endpoint
         const response = await axios.get(`${API_BASE_URL}/auth/verify-email?token=${token}`);
         
         console.log('✅ Verification response:', response.data);
         
-        // Get the returned data
-        const { access_token, user, message } = response.data;
+        const { access_token, user, message: responseMessage } = response.data;
         
         if (access_token && user) {
-          // Store token and update auth context
-          localStorage.setItem('token', access_token);
-          axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-          
-          // Manually set user in auth context
-          setVerifiedUser(user);
+          // ✅ Use the login function from AuthContext
+          login(user, access_token);
           
           setStatus('success');
-          setMessage(message || 'Email verified successfully!');
+          setMessage(responseMessage || 'Email verified successfully! Redirecting to dashboard...');
           
-          // Redirect to dashboard after 2 seconds
           setTimeout(() => {
             navigate('/');
           }, 2000);
         } else {
           setStatus('success');
-          setMessage(message || 'Email verified successfully! You can now log in.');
+          setMessage(responseMessage || 'Email verified successfully! You can now log in.');
           
-          // Redirect to login after 3 seconds
           setTimeout(() => {
             navigate('/login');
           }, 3000);
@@ -68,10 +60,18 @@ const VerificationSuccess = () => {
         
       } catch (err) {
         console.error('❌ Verification error:', err);
+        console.error('Error response:', err.response?.data);
+        
         setStatus('error');
         
-        // Handle different error types
-        if (err.response?.status === 400) {
+        // Check if the error is actually a success (email already verified)
+        if (err.response?.data?.detail === "Email already verified") {
+          setStatus('success');
+          setMessage('Email already verified! You can now log in.');
+          setTimeout(() => {
+            navigate('/login');
+          }, 2000);
+        } else if (err.response?.status === 400) {
           setMessage(err.response?.data?.detail || 'Invalid or expired verification token');
         } else if (err.response?.status === 404) {
           setMessage('User not found');
@@ -82,7 +82,7 @@ const VerificationSuccess = () => {
     };
 
     verifyEmail();
-  }, [searchParams, navigate, setVerifiedUser]); // Added setVerifiedUser to dependencies
+  }, [searchParams, navigate, login]);
 
   if (status === 'verifying') {
     return (
@@ -130,7 +130,6 @@ const VerificationSuccess = () => {
     );
   }
 
-  // Success state
   return (
     <Container maxWidth="sm" sx={{ mt: 8 }}>
       <Paper sx={{ p: 5, textAlign: 'center' }}>
