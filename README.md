@@ -246,10 +246,10 @@ Revenue must be numeric
 
 # Google Sheets
 
-Share your sheet with the service account email: agentic-analyst-bot@agentic-analyst-489012.iam.gserviceaccount.com
-Grant "Viewer" (read-only) access
-Enter the Sheet ID (from the URL)
-Enter the Sheet/Tab Name (case-sensitive)
+1. Share your sheet with the service account email: agentic-analyst-bot@agentic-analyst-489012.iam.gserviceaccount.com
+2. Grant "Viewer" (read-only) access
+3. Enter the Sheet ID (from the URL)
+4. Enter the Sheet/Tab Name (case-sensitive)
 
 # PostgreSQL / MySQL
 
@@ -262,9 +262,10 @@ Connection parameters:
 6. Table: your_table
 
 # SQLite
-Upload .db, .sqlite, or .sqlite3 files
-Select the table containing your data
-File size limit: 10MB
+
+1. Upload .db, .sqlite, or .sqlite3 files
+2. Select the table containing your data
+3. File size limit: 10MB
 
 
 
@@ -324,43 +325,46 @@ SENDGRID_API_KEY=SG.your-sendgrid-api-key
 DATABASE_URL=postgresql://user:pass@localhost:5432/agentic_analyst
 
 # Security - Generate with: python -c "import secrets; print(secrets.token_hex(32))"
-SECRET_KEY=your-secret-key-min-32-chars
-AUDIT_SECRET_KEY=your-audit-secret-key
-DB_ENCRYPTION_KEY=your-encryption-key
-SECRETS_MASTER_PASSWORD=your-master-password
+   SECRET_KEY=your-secret-key-min-32-chars
+   AUDIT_SECRET_KEY=your-audit-secret-key
+   DB_ENCRYPTION_KEY=your-encryption-key
+   SECRETS_MASTER_PASSWORD=your-master-password
 
 # Frontend URL (for email links)
-FRONTEND_URL=http://localhost:3000
+   FRONTEND_URL=http://localhost:3000
 
 
 # 🛠️ Technology Stack
+
 # Backend
-Category	Technologies
-Framework	FastAPI, Uvicorn
-Database	PostgreSQL, SQLite, Redis
-AI/ML	OpenAI GPT-4o-mini, LangChain, Statsmodels (ARIMA), Scikit-learn
-Data Processing	Pandas, NumPy, SciPy
-Visualization	Matplotlib, Plotly
-Authentication	JWT, bcrypt
-Email	SendGrid API
-Security	Cryptography, pgcrypto, SlowAPI
-Async	asyncio, BackgroundTasks
+
+   Category	Technologies
+   Framework	FastAPI, Uvicorn
+   Database	PostgreSQL, SQLite, Redis
+   AI/ML	OpenAI GPT-4o-mini, LangChain, Statsmodels (ARIMA), Scikit-learn
+   Data Processing	Pandas, NumPy, SciPy
+   Visualization	Matplotlib, Plotly
+   Authentication	JWT, bcrypt
+   Email	SendGrid API
+   Security	Cryptography, pgcrypto, SlowAPI
+   Async	asyncio, BackgroundTasks
 
 # Frontend
-Category	Technologies
-Framework	React 18
-UI Library	Material-UI (MUI)
-HTTP Client	Axios
-File Upload	React Dropzone
-Routing	React Router DOM
-State Management	React Context API
+
+   Category	Technologies
+   Framework	React 18
+   UI Library	Material-UI (MUI)
+   HTTP Client	Axios
+   File Upload	React Dropzone
+   Routing	React Router DOM
+   State Management	React Context API
 
 # DevOps & Infrastructure
-Category	Technologies
-Containerization	Docker, Docker Compose
-CI/CD	GitHub Actions (7 workflows)
-Hosting	Vercel (frontend), Render (backend)
-Database Hosting	Render PostgreSQL
-Cache	Render Redis (Key Value)
-Email	SendGrid
-Monitoring	Custom audit, performance, cost tracking
+
+   Containerization	Docker, Docker Compose
+   CI/CD	GitHub Actions (7 workflows)
+   Hosting	Vercel (frontend), Render (backend)
+   Database Hosting	Render PostgreSQL
+   Cache	Render Redis (Key Value)
+   Email	SendGrid
+   Monitoring	Custom audit, performance, cost tracking
