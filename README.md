@@ -293,6 +293,55 @@ cp .env.example .env
 # Run the backend
 python -m app.main
 
+# Navigate to frontend directory
+cd frontend
+
+# Install dependencies
+npm install
+
+# Create environment file
+echo "REACT_APP_API_URL=http://localhost:8000/api/v1" > .env
+
+# Start the development server
+npm start
+
+# Database (optional - SQLite used by default)
+DATABASE_URL=postgresql://user:pass@localhost:5432/agentic_analyst
+
+# Security - Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+SECRET_KEY=your-secret-key-min-32-chars
+AUDIT_SECRET_KEY=your-audit-secret-key
+DB_ENCRYPTION_KEY=your-encryption-key
+SECRETS_MASTER_PASSWORD=your-master-password
+
+# Frontend URL (for email links)
+FRONTEND_URL=http://localhost:3000
+
+# Build and run all services
+docker-compose -f docker/docker-compose.dev.yml up --build
+
+# Build the production image
+docker build -f docker/Dockerfile.prod -t agentic-analyst .
+
+# Run the container
+docker run -p 8000:8000 --env-file .env agentic-analyst
+
+# Services start at:
+# - Backend: http://localhost:8000
+# - PostgreSQL: localhost:5432
+# - Redis: localhost:6379
+
+# Start all services
+docker-compose -f docker/docker-compose.prod.yml up -d
+
+# View logs
+docker-compose -f docker/docker-compose.prod.yml logs -f app
+
+# Stop services
+docker-compose -f docker/docker-compose.prod.yml down
+
+# Stop and remove volumes (reset database)
+docker-compose -f docker/docker-compose.prod.yml down -v
 
 # 🛠️ Technology Stack
 
