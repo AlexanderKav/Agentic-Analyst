@@ -204,13 +204,13 @@ This module solves a fundamental real-world problem that every business analyst 
 ### 1. User login
 <img width="1900" height="891" alt="Screenshot 2026-04-08 142745" src="https://github.com/user-attachments/assets/47bd6c44-6041-4c30-bf1a-8cc4f1620c72" />
 
-### 2. User decides where to connect business data
+### 2. User connect business data
 <img width="1884" height="869" alt="image" src="https://github.com/user-attachments/assets/9929edc4-e59c-432c-be10-7002e1d67665" />
 
 ### 3. User successfully connects data source
 <img width="1877" height="909" alt="image" src="https://github.com/user-attachments/assets/2cb1133b-3dd2-4250-ab37-68efcd03ee22" />
 
-### 4. Asks question in relation to data
+### 4. Asks a question in relation to data
 <img width="1897" height="709" alt="image" src="https://github.com/user-attachments/assets/cdfde6c4-7c04-40d2-8bc0-2b3e05b5ef0d" />
 
 ### 5. Example of output
