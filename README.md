@@ -200,6 +200,11 @@ WHY THE SCHEMA MAPPER IS CRITICAL FOR BUSINESS USERS:
 4. **Ask a question** in natural language
 5. **Get insights** with charts and recommendations
 
+## Screenshots of work flow
+
+<img width="1900" height="891" alt="Screenshot 2026-04-08 142745" src="https://github.com/user-attachments/assets/47bd6c44-6041-4c30-bf1a-8cc4f1620c72" />
+
+
 ### Sample Questions to Try
 
 📊 Revenue Analysis:
