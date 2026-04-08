@@ -19,7 +19,7 @@
 - [Use Cases](#use-cases)
 - [Architecture](#architecture)
 - [Quick Start](#quick-start)
-- [Example of Workflow](#example-of-workflow)
+- [Example Workflow](#example-workflow)
 - [Example Questions](#example-questions)
 - [Data Requirements](#data-requirements)
 - [Local Development](#local-development)
@@ -199,9 +199,9 @@ This module solves a fundamental real-world problem that every business analyst 
 
 ---
 
-## Example of Workflow
+## Example Workflow
 
-### 1. User Login
+### 1. User login
 <img width="1900" height="891" alt="Screenshot 2026-04-08 142745" src="https://github.com/user-attachments/assets/47bd6c44-6041-4c30-bf1a-8cc4f1620c72" />
 
 ### 2. User decides where to connect business data
