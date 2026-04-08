@@ -244,29 +244,26 @@ Date format: YYYY-MM-DD (or any pandas-parsable format)
 
 Revenue must be numeric
 
-
-```Google Sheets
+# Google Sheets
 
 Share your sheet with the service account email: agentic-analyst-bot@agentic-analyst-489012.iam.gserviceaccount.com
 Grant "Viewer" (read-only) access
 Enter the Sheet ID (from the URL)
 Enter the Sheet/Tab Name (case-sensitive)
 
-```PostgreSQL / MySQL
+# PostgreSQL / MySQL
+
 Connection parameters:
+1. Host: your-db-host.com
+2. Port: 5432 (PostgreSQL) / 3306 (MySQL)
+3. Database: your_database
+4. Username: your_username
+5. Password: your_password
+6. Table: your_table
 
-Host: your-db-host.com
-Port: 5432 (PostgreSQL) / 3306 (MySQL)
-Database: your_database
-Username: your_username
-Password: your_password
-Table: your_table
-
-```SQLite
+# SQLite
 Upload .db, .sqlite, or .sqlite3 files
-
 Select the table containing your data
-
 File size limit: 10MB
 
 
