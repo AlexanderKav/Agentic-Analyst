@@ -73,7 +73,7 @@ cryptography
 boto3
 
 # Email
-aiosmtplib==2.0.1
+aiosmtplib==5.1.0
 jinja2==3.1.2
 
 
